@@ -14,7 +14,7 @@
           <h1>Talk to the agent through a live text box</h1>
           <p>
             This page talks directly to the language runtime. It shows visible dialogue,
-            background inner thoughts, and the agent's current focus as it updates.
+            background inner thoughts, runtime identity anchors, and the agent's current focus as it updates.
           </p>
         </div>
         <div class="hero-metrics">
@@ -25,6 +25,10 @@
           <div>
             <span class="metric-label">Current focus</span>
             <strong id="focus-label">awaiting interaction</strong>
+          </div>
+          <div>
+            <span class="metric-label">Dominant goal</span>
+            <strong id="goal-label">not established</strong>
           </div>
           <div>
             <span class="metric-label">Background loop</span>
@@ -38,6 +42,80 @@
           <span class="metric-label">Rolling summary</span>
           <p id="summary-text">No compressed memory yet.</p>
         </div>
+      </section>
+
+      <section class="identity-grid">
+        <article class="panel panel-identity">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Self Model</span>
+              <h2>Identity anchor</h2>
+            </div>
+          </header>
+          <dl class="identity-list">
+            <div>
+              <dt>Name</dt>
+              <dd id="identity-name">Astra</dd>
+            </div>
+            <div>
+              <dt>Origin</dt>
+              <dd id="identity-origin">No origin loaded.</dd>
+            </div>
+            <div>
+              <dt>Commitments</dt>
+              <dd id="identity-commitments">No commitments loaded.</dd>
+            </div>
+            <div>
+              <dt>Narrative</dt>
+              <dd id="identity-narrative">No long-term narrative yet.</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="panel panel-identity">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Counterpart</span>
+              <h2>User anchor</h2>
+            </div>
+          </header>
+          <dl class="identity-list">
+            <div>
+              <dt>Name</dt>
+              <dd id="counterpart-label">Primary User</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd id="counterpart-role">dialogue_partner</dd>
+            </div>
+            <div>
+              <dt>Relationship</dt>
+              <dd id="counterpart-relationship">operator</dd>
+            </div>
+            <div>
+              <dt>Identity status</dt>
+              <dd id="identity-status">unanchored</dd>
+            </div>
+            <div>
+              <dt>Social obligations</dt>
+              <dd id="counterpart-obligations">reply clearly, preserve continuity</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="panel panel-goals">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Runtime</span>
+              <h2>Active goals</h2>
+            </div>
+          </header>
+          <div class="goal-list" id="goal-list">
+            <div class="empty-state" id="goal-empty">
+              <p>No active goals loaded yet.</p>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section class="workspace-grid">
@@ -65,6 +143,10 @@
               <span>Counterpart name</span>
               <input id="counterpart-name-input" value="Primary User" />
             </label>
+            <label class="field">
+              <span>Counterpart role</span>
+              <input id="counterpart-role-input" value="operator" />
+            </label>
             <label class="field field-wide">
               <span>Your message</span>
               <textarea id="message-input" rows="4" placeholder="Type a message to the agent..."></textarea>
@@ -86,6 +168,20 @@
           <div class="thought-list" id="thought-list">
             <div class="empty-state" id="thought-empty">
               <p>The background loop has not written any thoughts yet.</p>
+            </div>
+          </div>
+        </aside>
+
+        <aside class="panel panel-traces">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Runtime Trace</span>
+              <h2>Recent steps</h2>
+            </div>
+          </header>
+          <div class="trace-list" id="trace-list">
+            <div class="empty-state" id="trace-empty">
+              <p>No runtime trace entries yet.</p>
             </div>
           </div>
         </aside>

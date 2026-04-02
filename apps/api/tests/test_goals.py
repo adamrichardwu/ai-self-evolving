@@ -37,6 +37,7 @@ def test_refresh_goals_creates_persistent_goal_stack() -> None:
     body = first_refresh.json()
     assert body["dominant_goal"] != ""
     assert len(body["goals"]) >= 3
+    assert any(goal["title"] == "Maintain self/user identity separation" for goal in body["goals"])
 
     second_refresh = client.post(f"/api/v1/goals/{agent_id}/refresh")
     assert second_refresh.status_code == 201

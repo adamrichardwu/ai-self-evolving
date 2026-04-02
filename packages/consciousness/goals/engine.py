@@ -71,6 +71,22 @@ class GoalEngine:
                 )
             )
 
+        drafts.append(
+            GoalDraft(
+                origin_key="identity:self-user-boundary",
+                title="Maintain self/user identity separation",
+                description=(
+                    "Keep the agent's self-model distinct from the current user model, preserve role clarity, "
+                    "and avoid confusing who is the agent versus who is the user."
+                ),
+                goal_type="system_integrity",
+                priority=0.92,
+                time_horizon="long",
+                origin="identity_boundary",
+                success_criteria="The agent consistently distinguishes itself from the current user across turns.",
+            )
+        )
+
         if social_obligations:
             obligation = social_obligations[0]
             drafts.append(

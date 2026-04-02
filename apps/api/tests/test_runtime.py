@@ -34,7 +34,12 @@ def test_runtime_step_uses_language_reply_when_user_text_exists() -> None:
 
     step_response = client.post(
         f"/api/v1/runtime/{agent_id}/step",
-        json={"user_text": "Tell me your most important current goal."},
+        json={
+            "user_text": "Tell me your most important current goal.",
+            "counterpart_name": "Primary User",
+            "relationship_type": "operator",
+            "counterpart_role": "operator",
+        },
     )
     assert step_response.status_code == 200
     body = step_response.json()
@@ -43,6 +48,11 @@ def test_runtime_step_uses_language_reply_when_user_text_exists() -> None:
     assert body["dominant_goal"] != ""
     assert len(body["active_goals"]) >= 1
     assert body["thought"] is not None
+    assert body["identity_context"]["self_name"] == "Astra"
+    assert body["identity_context"]["counterpart_name"] == "Primary User"
+    assert body["identity_context"]["identity_status"] in ["anchored", "partial", "unanchored", "confused"]
+    assert body["trace"] is not None
+    assert body["trace"]["action_taken"] == "language_reply"
 
 
 def test_runtime_state_and_background_step_expose_runtime_context() -> None:
@@ -87,3 +97,6 @@ def test_runtime_state_and_background_step_expose_runtime_context() -> None:
     assert state["dominant_goal"] != ""
     assert len(state["active_goals"]) >= 1
     assert state["latest_thought"] is not None
+    assert state["identity_context"]["self_name"] == "Astra"
+    assert state["identity_context"]["identity_status"] in ["anchored", "partial", "unanchored", "confused"]
+    assert len(state["recent_traces"]) >= 1

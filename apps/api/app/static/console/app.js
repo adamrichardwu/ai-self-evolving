@@ -1,15 +1,30 @@
 const agentLabel = document.getElementById("agent-label");
 const focusLabel = document.getElementById("focus-label");
+const goalLabel = document.getElementById("goal-label");
 const loopLabel = document.getElementById("loop-label");
 const summaryText = document.getElementById("summary-text");
 const statusChip = document.getElementById("status-chip");
+const identityName = document.getElementById("identity-name");
+const identityOrigin = document.getElementById("identity-origin");
+const identityCommitments = document.getElementById("identity-commitments");
+const identityNarrative = document.getElementById("identity-narrative");
+const counterpartLabel = document.getElementById("counterpart-label");
+const counterpartRole = document.getElementById("counterpart-role");
+const counterpartRelationship = document.getElementById("counterpart-relationship");
+const identityStatus = document.getElementById("identity-status");
+const counterpartObligations = document.getElementById("counterpart-obligations");
+const goalList = document.getElementById("goal-list");
+const goalEmpty = document.getElementById("goal-empty");
 const messageList = document.getElementById("message-list");
 const thoughtList = document.getElementById("thought-list");
+const traceList = document.getElementById("trace-list");
 const messageEmpty = document.getElementById("message-empty");
 const thoughtEmpty = document.getElementById("thought-empty");
+const traceEmpty = document.getElementById("trace-empty");
 const composerForm = document.getElementById("composer-form");
 const agentIdInput = document.getElementById("agent-id-input");
 const counterpartNameInput = document.getElementById("counterpart-name-input");
+const counterpartRoleInput = document.getElementById("counterpart-role-input");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 const errorText = document.getElementById("error-text");
@@ -39,10 +54,12 @@ function buildSelfModelPayload(agentId) {
       social: {
         active_relationships: ["Primary User"],
         trust_map: { "user-primary": 0.6 },
-        role_in_current_context: "dialogue_partner",
+        role_in_current_context: "operator",
         social_obligations: ["reply clearly", "preserve continuity"],
       },
-      autobiography: {},
+      autobiography: {
+        long_term_narrative: "I am trying to remain a continuous agent that can distinguish self from user.",
+      },
     },
     update_reason: "browser_console_bootstrap",
   };
@@ -108,6 +125,66 @@ function renderThoughts(thoughts) {
     });
 }
 
+function renderGoals(goals) {
+  clearChildren(goalList);
+  if (!goals.length) {
+    goalList.appendChild(goalEmpty);
+    return;
+  }
+
+  goals.forEach((goal) => {
+    const card = document.createElement("article");
+    card.className = "goal-card";
+
+    const meta = document.createElement("span");
+    meta.className = "goal-meta";
+    meta.textContent = `${goal.goal_type} · ${goal.time_horizon} · ${goal.status}`;
+
+    const title = document.createElement("strong");
+    title.textContent = goal.title;
+
+    const body = document.createElement("p");
+    body.textContent = goal.description;
+
+    card.appendChild(meta);
+    card.appendChild(title);
+    card.appendChild(body);
+    goalList.appendChild(card);
+  });
+}
+
+function renderTraces(traces) {
+  clearChildren(traceList);
+  if (!traces.length) {
+    traceList.appendChild(traceEmpty);
+    return;
+  }
+
+  traces.forEach((trace) => {
+    const card = document.createElement("article");
+    card.className = "trace-card";
+
+    const meta = document.createElement("div");
+    meta.className = "trace-meta";
+    meta.innerHTML = `<span>${trace.action_taken}</span><span>${trace.identity_status}</span><span>${trace.relationship_type || "unknown"}</span>`;
+
+    const focus = document.createElement("strong");
+    focus.textContent = trace.current_focus || "No focus recorded.";
+
+    const goal = document.createElement("p");
+    goal.textContent = trace.dominant_goal ? `Goal: ${trace.dominant_goal}` : "Goal: none recorded.";
+
+    const detail = document.createElement("p");
+    detail.textContent = trace.assistant_text || trace.summary_text || trace.thought_focus || "No additional trace detail.";
+
+    card.appendChild(meta);
+    card.appendChild(focus);
+    card.appendChild(goal);
+    card.appendChild(detail);
+    traceList.appendChild(card);
+  });
+}
+
 async function ensureAgent(agentId) {
   const response = await fetch("/api/v1/self-models", {
     method: "POST",
@@ -122,30 +199,56 @@ async function ensureAgent(agentId) {
 async function syncState() {
   const agentId = agentIdInput.value.trim() || "agent-web-console";
   agentLabel.textContent = agentId;
+  counterpartLabel.textContent = counterpartNameInput.value.trim() || "Primary User";
+  counterpartRole.textContent = counterpartRoleInput.value.trim() || "operator";
 
   try {
-    const response = await fetch(`/api/v1/language/${encodeURIComponent(agentId)}/state`);
-    if (response.status === 404) {
+    const [languageResponse, runtimeResponse, selfModelResponse, relationshipResponse] = await Promise.all([
+      fetch(`/api/v1/language/${encodeURIComponent(agentId)}/state`),
+      fetch(`/api/v1/runtime/${encodeURIComponent(agentId)}/state`),
+      fetch(`/api/v1/self-models/${encodeURIComponent(agentId)}`),
+      fetch(`/api/v1/social-memory/${encodeURIComponent(agentId)}/relationships/user-primary`),
+    ]);
+
+    if (languageResponse.status === 404 || runtimeResponse.status === 404 || selfModelResponse.status === 404) {
       statusChip.textContent = "Agent not initialized yet";
       renderMessages([]);
       renderThoughts([]);
+      renderGoals([]);
+      renderTraces([]);
       return;
     }
-    if (!response.ok) {
+    if (!languageResponse.ok || !runtimeResponse.ok || !selfModelResponse.ok) {
       throw new Error("Failed to load language state.");
     }
-    const state = await response.json();
+    const state = await languageResponse.json();
+    const runtime = await runtimeResponse.json();
+    const selfModel = await selfModelResponse.json();
+    const relationship = relationshipResponse.ok ? await relationshipResponse.json() : null;
+    const identityContext = runtime.identity_context || {};
+
     renderMessages(state.messages || []);
     renderThoughts(state.thoughts || []);
+    renderGoals(runtime.active_goals || []);
+    renderTraces(runtime.recent_traces || []);
     loopLabel.textContent = state.background_loop_enabled ? "active" : "idle";
-    summaryText.textContent = state.summary?.summary_text || "No compressed memory yet.";
-    if (state.thoughts && state.thoughts.length > 0) {
-      focusLabel.textContent = state.thoughts[state.thoughts.length - 1].focus;
-    }
+    summaryText.textContent = runtime.summary_text || state.summary?.summary_text || "No compressed memory yet.";
+    focusLabel.textContent = runtime.current_focus || selfModel.snapshot.attention.current_focus || "awaiting interaction";
+    goalLabel.textContent = runtime.dominant_goal || state.dominant_goal || "not established";
+    identityName.textContent = identityContext.self_name || selfModel.chosen_name || selfModel.snapshot.identity.chosen_name || "Astra";
+    identityOrigin.textContent = identityContext.self_origin_story || selfModel.snapshot.identity.origin_story || "No origin loaded.";
+    identityCommitments.textContent = (identityContext.self_commitments || selfModel.snapshot.identity.core_commitments || []).join(", ") || "No commitments loaded.";
+    identityNarrative.textContent = identityContext.self_narrative || selfModel.snapshot.autobiography.long_term_narrative || "No long-term narrative yet.";
+    counterpartLabel.textContent = identityContext.counterpart_name || relationship?.counterpart_name || counterpartNameInput.value.trim() || "Primary User";
+    counterpartRole.textContent = identityContext.counterpart_role || relationship?.role_in_context || counterpartRoleInput.value.trim() || "operator";
+    counterpartRelationship.textContent = identityContext.relationship_type || relationship?.relationship_type || "unknown";
+    identityStatus.textContent = identityContext.identity_status || state.summary?.identity_status || "unanchored";
+    counterpartObligations.textContent = (identityContext.social_obligations || relationship?.social_obligations || selfModel.snapshot.social.social_obligations || []).join(", ") || "No obligations loaded.";
     statusChip.textContent = "Connected";
     errorText.textContent = "";
   } catch (error) {
     statusChip.textContent = "API unavailable";
+    renderTraces([]);
     errorText.textContent = error instanceof Error ? error.message : "Unknown error.";
   }
 }
@@ -155,6 +258,7 @@ composerForm.addEventListener("submit", async (event) => {
   const agentId = agentIdInput.value.trim() || "agent-web-console";
   const message = messageInput.value.trim();
   const counterpartName = counterpartNameInput.value.trim() || "Primary User";
+  const counterpartRoleValue = counterpartRoleInput.value.trim() || "operator";
   if (!message) {
     return;
   }
@@ -165,14 +269,15 @@ composerForm.addEventListener("submit", async (event) => {
 
   try {
     await ensureAgent(agentId);
-    const response = await fetch(`/api/v1/language/${encodeURIComponent(agentId)}/messages`, {
+    const response = await fetch(`/api/v1/runtime/${encodeURIComponent(agentId)}/step`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: message,
+        user_text: message,
         counterpart_id: "user-primary",
         counterpart_name: counterpartName,
         relationship_type: "operator",
+        counterpart_role: counterpartRoleValue,
         observed_sentiment: "supportive",
       }),
     });

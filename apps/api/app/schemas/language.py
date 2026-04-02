@@ -8,6 +8,7 @@ class LanguageInputRequest(BaseModel):
     counterpart_id: str = "user-primary"
     counterpart_name: str = "User"
     relationship_type: str = "user"
+    counterpart_role: str = "dialogue_partner"
     observed_sentiment: str = "neutral"
 
 
@@ -34,6 +35,9 @@ class LanguageSummaryResponse(BaseModel):
     summary_text: str
     message_count: int
     last_focus: str
+    counterpart_name: str = ""
+    relationship_type: str = ""
+    identity_status: str = "unanchored"
 
 
 class LLMStatusResponse(BaseModel):

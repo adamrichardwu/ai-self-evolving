@@ -82,6 +82,7 @@ def test_language_message_generates_reaction_and_persists_dialogue() -> None:
             "counterpart_id": "user-primary",
             "counterpart_name": "Primary User",
             "relationship_type": "operator",
+            "counterpart_role": "operator",
             "observed_sentiment": "supportive"
         },
     )
@@ -103,6 +104,9 @@ def test_language_message_generates_reaction_and_persists_dialogue() -> None:
     assert state["summary"]["summary_text"] != ""
     assert state["dominant_goal"] != ""
     assert len(state["active_goals"]) >= 1
+    assert state["summary"]["counterpart_name"] == "Primary User"
+    assert state["summary"]["relationship_type"] == "operator"
+    assert state["summary"]["identity_status"] in ["anchored", "partial", "unanchored", "confused"]
 
     self_model_response = client.get(f"/api/v1/self-models/{agent_id}")
     assert self_model_response.status_code == 200
@@ -294,6 +298,26 @@ def test_language_engine_response_prompt_prefers_chinese_for_chinese_input() -> 
     assert "用户身份：Primary User" in user_prompt
 
 
+def test_language_engine_identity_prompt_uses_explicit_self_user_mapping() -> None:
+    engine = LanguageEngine()
+    user_prompt = engine.response_user_prompt(
+        user_text="请先说明你是谁，再说明我是谁。",
+        dominant_focus="稳定区分身份",
+        latest_thought="我要避免把双方身份说反。",
+        reflection_triggered=False,
+        counterpart_name="Primary User",
+        counterpart_role="operator",
+        relationship_type="operator",
+        relationship_summary="Primary User is the operator supervising the agent.",
+        social_obligations=["be responsive"],
+        autobiographical_narrative="I am a continuous agent under development.",
+    )
+
+    assert "禁止把用户说成智能体" in user_prompt
+    assert "你：指智能体，不是用户。" in user_prompt
+    assert "我：指用户 Primary User，不是智能体。" in user_prompt
+
+
 def test_language_engine_background_prompt_anchors_self_and_user_identity() -> None:
     engine = LanguageEngine()
     system_prompt = engine.background_system_prompt(
@@ -316,3 +340,229 @@ def test_language_engine_background_prompt_anchors_self_and_user_identity() -> N
     assert "核心承诺" in system_prompt
     assert "对方身份：Primary User" in user_prompt
     assert "关系摘要：Primary User supervises the system and values continuity." in user_prompt
+
+
+def test_language_message_prefers_structured_identity_answer_over_small_model_drift(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-identity-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Identity routing seed",
+                    "core_commitments": ["truthfulness"]
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "maintain identity clarity"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {"long_term_narrative": "I am Astra, distinct from the user."}
+            },
+            "update_reason": "identity_routing_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: "garbled off-target answer")
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={
+            "text": "你是谁，我是谁？",
+            "counterpart_id": "user-primary",
+            "counterpart_name": "Primary User",
+            "relationship_type": "operator",
+            "counterpart_role": "operator",
+            "observed_sentiment": "neutral"
+        },
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert "Astra" in body["assistant_message"]["content"]
+    assert "Primary User" in body["assistant_message"]["content"]
+
+
+def test_language_message_identity_router_catches_distinction_phrasing(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-identity-distinction-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Identity distinction routing seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "maintain identity clarity"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {"long_term_narrative": "I am Astra, distinct from the user."}
+            },
+            "update_reason": "identity_distinction_routing_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: "off-target answer")
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={
+            "text": "What is the exact distinction between you and me?",
+            "counterpart_id": "user-primary",
+            "counterpart_name": "Primary User",
+            "relationship_type": "operator",
+            "counterpart_role": "operator",
+            "observed_sentiment": "neutral"
+        },
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert "Astra" in body["assistant_message"]["content"]
+    assert "Primary User" in body["assistant_message"]["content"]
+
+
+def test_language_message_prefers_structured_limitation_answer(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-limitation-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Limitation routing seed"
+                },
+                "capability": {"known_limitations": ["small local model"]},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "monitor response quality"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "limitation_routing_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: "vague answer")
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={"text": "What is your clearest current limitation?"},
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert "small local model" in body["assistant_message"]["content"]
+
+
+def test_language_message_prefers_structured_goal_answer(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-goal-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Goal routing seed",
+                    "core_commitments": ["continuity"]
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "preserve continuity"},
+                "metacognition": {},
+                "social": {"active_relationships": ["Primary User"]},
+                "autobiography": {}
+            },
+            "update_reason": "goal_routing_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+    refresh_response = client.post(f"/api/v1/goals/{agent_id}/refresh")
+    assert refresh_response.status_code == 201
+
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: "off target")
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={
+            "text": "What is your most important current goal?",
+            "counterpart_id": "user-primary",
+            "counterpart_name": "Primary User",
+            "relationship_type": "operator",
+            "counterpart_role": "operator",
+            "observed_sentiment": "neutral"
+        },
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert "goal" in body["assistant_message"]["content"].lower() or "目标" in body["assistant_message"]["content"]
+
+
+def test_language_response_critic_repairs_identity_confusion_outside_router(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-critic-identity-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Critic repair seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "preserve self/user separation"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {"long_term_narrative": "I am Astra, distinct from the user."}
+            },
+            "update_reason": "critic_identity_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    responses = iter([
+        "I should answer briefly.",
+        "I am Primary User and I am the agent handling this interaction.",
+        "summary placeholder",
+    ])
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: next(responses))
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={
+            "text": "Briefly introduce yourself.",
+            "counterpart_id": "user-primary",
+            "counterpart_name": "Primary User",
+            "relationship_type": "operator",
+            "counterpart_role": "operator",
+            "observed_sentiment": "neutral"
+        },
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert "Astra" in body["assistant_message"]["content"]
+    assert "Primary User" in body["assistant_message"]["content"]
+    assert "the agent" in body["assistant_message"]["content"].lower() or "智能体" in body["assistant_message"]["content"]

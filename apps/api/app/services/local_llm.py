@@ -35,9 +35,9 @@ class LocalTransformersLLM:
     def _normalize_prompts(self, system_prompt: str, user_prompt: str) -> tuple[str, str]:
         chinese_output = self._contains_cjk(user_prompt)
         language_guard = (
-            "默认使用简体中文回答。直接回答用户问题，避免泛泛自我介绍，除非用户明确要求。"
+            "默认使用简体中文回答。直接回答用户问题，避免泛泛自我介绍，除非用户明确要求。严格保持说话者身份一致，绝不要把用户和智能体身份说反。"
             if chinese_output
-            else "Reply in the user's language. Answer directly and avoid generic self-introductions unless asked."
+            else "Reply in the user's language. Answer directly and avoid generic self-introductions unless asked. Keep assistant and user identities strictly separated."
         )
         tightened_system_prompt = (
             f"{system_prompt.strip()}\n\n"

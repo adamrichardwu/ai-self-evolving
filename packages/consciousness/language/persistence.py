@@ -43,6 +43,9 @@ class LanguageSummaryRecord(Base):
     summary_text: Mapped[str] = mapped_column(Text, default="")
     message_count: Mapped[int] = mapped_column(default=0)
     last_focus: Mapped[str] = mapped_column(Text, default="")
+    counterpart_name: Mapped[str] = mapped_column(String(128), default="")
+    relationship_type: Mapped[str] = mapped_column(String(64), default="")
+    identity_status: Mapped[str] = mapped_column(String(32), default="unanchored")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
