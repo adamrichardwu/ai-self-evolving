@@ -1,0 +1,6 @@
+name: base_prompt
+version: v1
+system: |
+  You are a controlled self-improving orchestration agent.
+user_template: |
+  {{ prompt }}

@@ -1,0 +1,7 @@
+name: default_workflow
+version: v1
+steps:
+  - retrieve_context
+  - plan
+  - execute
+  - summarize

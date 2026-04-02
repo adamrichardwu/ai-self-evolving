@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Conscious Console</title>
+    <link rel="stylesheet" href="/console/styles.css" />
+  </head>
+  <body>
+    <main class="console-shell">
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <span class="eyebrow">Browser Console</span>
+          <h1>Talk to the agent through a live text box</h1>
+          <p>
+            This page talks directly to the language runtime. It shows visible dialogue,
+            background inner thoughts, and the agent's current focus as it updates.
+          </p>
+        </div>
+        <div class="hero-metrics">
+          <div>
+            <span class="metric-label">Agent</span>
+            <strong id="agent-label">agent-web-console</strong>
+          </div>
+          <div>
+            <span class="metric-label">Current focus</span>
+            <strong id="focus-label">awaiting interaction</strong>
+          </div>
+          <div>
+            <span class="metric-label">Background loop</span>
+            <strong id="loop-label">idle</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-band">
+        <div>
+          <span class="metric-label">Rolling summary</span>
+          <p id="summary-text">No compressed memory yet.</p>
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="panel panel-chat">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Dialogue</span>
+              <h2>Conversation stream</h2>
+            </div>
+            <span class="status-chip" id="status-chip">Connecting...</span>
+          </header>
+
+          <div class="message-list" id="message-list">
+            <div class="empty-state" id="message-empty">
+              <p>No messages yet. Send the first input and the page will bootstrap the agent automatically.</p>
+            </div>
+          </div>
+
+          <form class="composer" id="composer-form">
+            <label class="field">
+              <span>Agent ID</span>
+              <input id="agent-id-input" value="agent-web-console" />
+            </label>
+            <label class="field">
+              <span>Counterpart name</span>
+              <input id="counterpart-name-input" value="Primary User" />
+            </label>
+            <label class="field field-wide">
+              <span>Your message</span>
+              <textarea id="message-input" rows="4" placeholder="Type a message to the agent..."></textarea>
+            </label>
+            <div class="composer-actions">
+              <button type="submit" id="send-button">Send to agent</button>
+              <p class="error-text" id="error-text"></p>
+            </div>
+          </form>
+        </article>
+
+        <aside class="panel panel-thoughts">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Inner Stream</span>
+              <h2>Background thoughts</h2>
+            </div>
+          </header>
+          <div class="thought-list" id="thought-list">
+            <div class="empty-state" id="thought-empty">
+              <p>The background loop has not written any thoughts yet.</p>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="/console/app.js"></script>
+  </body>
+  </html>

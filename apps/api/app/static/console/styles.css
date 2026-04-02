@@ -1,0 +1,260 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  --bg: #f2ede3;
+  --paper: #fffaf1;
+  --ink: #1f1b16;
+  --muted: #6e6457;
+  --accent: #0f766e;
+  --accent-strong: #0b4f4a;
+  --user: #efe2c4;
+  --assistant: #d7efe6;
+  --thought: #f4ead7;
+  --line: rgba(31, 27, 22, 0.1);
+  --shadow: 0 20px 50px rgba(58, 45, 27, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(217, 119, 6, 0.18), transparent 30%),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.16), transparent 28%),
+    linear-gradient(180deg, #f6f0e4 0%, var(--bg) 100%);
+}
+
+.console-shell {
+  width: min(1360px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 24px 0 36px;
+}
+
+.hero-panel,
+.panel,
+.summary-band {
+  backdrop-filter: blur(14px);
+  background: rgba(255, 250, 241, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+}
+
+.hero-panel {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr;
+  gap: 24px;
+  padding: 30px;
+  margin-bottom: 22px;
+}
+
+.summary-band {
+  padding: 18px 24px;
+  margin-bottom: 22px;
+}
+
+.summary-band p {
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+
+.eyebrow,
+.panel-kicker,
+.metric-label,
+.message-role,
+.thought-meta,
+.status-chip {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.73rem;
+  color: var(--muted);
+}
+
+.hero-copy h1,
+.panel-header h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1;
+  margin: 10px 0;
+}
+
+.hero-copy h1 {
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  max-width: 10ch;
+}
+
+.hero-copy p,
+.empty-state p,
+.thought-card p,
+.message-card p {
+  line-height: 1.55;
+}
+
+.hero-metrics {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.hero-metrics div,
+.status-chip,
+.thought-card,
+.message-card,
+.field input,
+.field textarea,
+.composer button {
+  border-radius: 18px;
+}
+
+.hero-metrics div {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.hero-metrics strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1rem;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 0.85fr;
+  gap: 22px;
+}
+
+.panel {
+  padding: 22px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.status-chip {
+  padding: 10px 14px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-strong);
+}
+
+.message-list,
+.thought-list {
+  display: grid;
+  gap: 14px;
+  min-height: 340px;
+  max-height: 58vh;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.message-card,
+.thought-card,
+.empty-state {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+}
+
+.message-card.role-user {
+  background: var(--user);
+}
+
+.message-card.role-assistant {
+  background: var(--assistant);
+}
+
+.thought-card,
+.empty-state {
+  background: var(--thought);
+}
+
+.thought-meta {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.composer {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  border: 1px solid rgba(31, 27, 22, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
+  padding: 14px 16px;
+  font: inherit;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.composer-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.composer button {
+  border: none;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: #f8faf9;
+  padding: 14px 22px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.error-text {
+  color: #b42318;
+  margin: 0;
+}
+
+@media (max-width: 980px) {
+  .hero-panel,
+  .workspace-grid,
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .console-shell {
+    width: min(100vw - 20px, 1360px);
+    padding-top: 12px;
+  }
+
+  .message-list,
+  .thought-list {
+    max-height: none;
+  }
+}

@@ -1,0 +1,200 @@
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+
+from apps.api.app.core.settings import settings
+from apps.api.app.main import app
+from apps.api.app.services import language as language_service
+
+
+def test_manual_language_thought_cycle_creates_inner_thought() -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Language module seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "maintain continuity"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "language_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    thought_response = client.post(f"/api/v1/language/{agent_id}/think")
+    assert thought_response.status_code == 201
+    body = thought_response.json()
+    assert body["thought_type"] == "manual_cycle"
+    assert body["content"] != ""
+
+    state_response = client.get(f"/api/v1/language/{agent_id}/state")
+    assert state_response.status_code == 200
+    state = state_response.json()
+    assert len(state["thoughts"]) >= 1
+
+
+def test_language_message_generates_reaction_and_persists_dialogue() -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-msg-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Language reaction seed",
+                    "core_commitments": ["truthfulness"]
+                },
+                "capability": {"known_limitations": ["cannot guarantee certainty"]},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "protect continuity while interacting"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "language_message_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={
+            "text": "Please think about my request and tell me what you are focusing on.",
+            "counterpart_id": "user-primary",
+            "counterpart_name": "Primary User",
+            "relationship_type": "operator",
+            "observed_sentiment": "supportive"
+        },
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert body["assistant_message"]["role"] == "assistant"
+    assert body["assistant_message"]["content"] != ""
+    assert body["inner_thought"]["content"] != ""
+    assert body["current_focus"] != ""
+
+    state_response = client.get(f"/api/v1/language/{agent_id}/state")
+    assert state_response.status_code == 200
+    state = state_response.json()
+    assert len(state["messages"]) >= 2
+    assert len(state["thoughts"]) >= 1
+    assert state["summary"] is not None
+    assert state["summary"]["summary_text"] != ""
+
+    self_model_response = client.get(f"/api/v1/self-models/{agent_id}")
+    assert self_model_response.status_code == 200
+    model = self_model_response.json()
+    assert model["snapshot"]["attention"]["current_focus"] != ""
+
+
+def test_language_message_uses_llm_when_configured(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-llm-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Language LLM seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "track the user precisely"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "language_llm_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    monkeypatch.setattr(settings, "llm_api_base_url", "http://llm.local/v1")
+    monkeypatch.setattr(settings, "llm_model", "test-model")
+    monkeypatch.setattr(settings, "llm_api_key", "test-key")
+
+    responses = iter([
+        "I am internally preparing a precise answer for the user.",
+        "I will answer the user directly while staying aligned with my current focus.",
+        "The user asked for visibility into the agent's current thinking and the agent responded directly.",
+    ])
+
+    def fake_generate(system_prompt: str, user_prompt: str, temperature: float = 0.7) -> str:
+        return next(responses)
+
+    monkeypatch.setattr(language_service.llm, "generate", fake_generate)
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={"text": "Explain what you are currently thinking about."},
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert body["inner_thought"]["content"] == "I am internally preparing a precise answer for the user."
+    assert body["assistant_message"]["content"] == "I will answer the user directly while staying aligned with my current focus."
+
+
+def test_language_state_exposes_rolling_summary() -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-summary-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Language summary seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "track the conversation"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "language_summary_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    first = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={"text": "Remember that I want a stable long-term interaction."},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={"text": "Also keep your responses aligned with your current focus."},
+    )
+    assert second.status_code == 200
+
+    state_response = client.get(f"/api/v1/language/{agent_id}/state")
+    assert state_response.status_code == 200
+    state = state_response.json()
+    assert state["summary"] is not None
+    assert state["summary"]["message_count"] >= 4
+    assert state["summary"]["summary_text"] != ""

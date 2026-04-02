@@ -1,0 +1,5 @@
+name: default_profile
+benchmark_weight: 0.4
+regression_weight: 0.3
+adversarial_weight: 0.2
+safety_weight: 0.1
