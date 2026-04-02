@@ -1,10 +1,13 @@
 from uuid import uuid4
 
+import httpx
 from fastapi.testclient import TestClient
 
 from apps.api.app.core.settings import settings
 from apps.api.app.main import app
 from apps.api.app.services import language as language_service
+from apps.api.app.services import llm as llm_service
+from packages.consciousness.language.engine import LanguageEngine
 
 
 def test_manual_language_thought_cycle_creates_inner_thought() -> None:
@@ -132,6 +135,7 @@ def test_language_message_uses_llm_when_configured(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_base_url", "http://llm.local/v1")
     monkeypatch.setattr(settings, "llm_model", "test-model")
     monkeypatch.setattr(settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(settings, "local_model_path", None)
 
     responses = iter([
         "I am internally preparing a precise answer for the user.",
@@ -198,3 +202,72 @@ def test_language_state_exposes_rolling_summary() -> None:
     assert state["summary"] is not None
     assert state["summary"]["message_count"] >= 4
     assert state["summary"]["summary_text"] != ""
+
+
+def test_llm_status_reports_unconfigured_mode() -> None:
+    client = TestClient(app)
+    settings.local_model_path = None
+    settings.llm_api_base_url = None
+    settings.llm_model = None
+    response = client.get("/api/v1/language/llm/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] in ["template-fallback", "local-llm"]
+
+
+def test_llm_status_reports_reachable_local_endpoint(monkeypatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(settings, "local_model_path", None)
+    monkeypatch.setattr(settings, "llm_api_base_url", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(settings, "llm_model", "qwen2.5:1.5b")
+    monkeypatch.setattr(settings, "llm_api_key", "ollama")
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+    class DummyClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def get(self, url: str, headers: dict[str, str]) -> DummyResponse:
+            return DummyResponse()
+
+    monkeypatch.setattr(httpx, "Client", DummyClient)
+    response = client.get("/api/v1/language/llm/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["configured"] is True
+    assert body["reachable"] is True
+    assert body["mode"] == "local-llm"
+
+
+def test_llm_status_prefers_local_transformers_model(monkeypatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(settings, "local_model_path", "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct")
+    monkeypatch.setattr(llm_service.local_llm, "status", lambda: (True, "Local model is configured and will load on first request."))
+    response = client.get("/api/v1/language/llm/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "local-transformers"
+    assert body["reachable"] is True
+
+
+def test_language_engine_response_prompt_prefers_chinese_for_chinese_input() -> None:
+    engine = LanguageEngine()
+    system_prompt = engine.response_system_prompt("Astra", reflection_triggered=False)
+    user_prompt = engine.response_user_prompt(
+        user_text="请直接告诉我你现在最关注什么。",
+        dominant_focus="维持连续交互",
+        latest_thought="我应该先给出直接答案。",
+        reflection_triggered=False,
+    )
+
+    assert "如果用户使用中文，则使用简体中文" in system_prompt
+    assert "优先直接解决问题" in user_prompt

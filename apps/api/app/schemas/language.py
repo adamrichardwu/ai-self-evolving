@@ -34,6 +34,15 @@ class LanguageSummaryResponse(BaseModel):
     last_focus: str
 
 
+class LLMStatusResponse(BaseModel):
+    configured: bool
+    reachable: bool
+    mode: str
+    api_base_url: str | None = None
+    model: str | None = None
+    detail: str = ""
+
+
 class LanguageExchangeResponse(BaseModel):
     assistant_message: LanguageMessageResponse
     inner_thought: InnerThoughtResponse

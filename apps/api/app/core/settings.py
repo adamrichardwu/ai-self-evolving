@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     language_background_loop_enabled: bool = True
     language_thought_interval_seconds: float = 5.0
+    local_model_path: str | None = "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct"
+    local_model_max_new_tokens: int = 160
+    local_model_top_p: float = 0.88
+    local_model_repetition_penalty: float = 1.08
     llm_api_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str | None = None

@@ -40,11 +40,18 @@
 
 当以下配置存在时，语言模块会优先走真实 LLM：
 
+- `LOCAL_MODEL_PATH` 可选，本地 `Transformers` 模型目录
 - `LLM_API_BASE_URL`
 - `LLM_MODEL`
 - `LLM_API_KEY` 可选
 
-调用方式采用 OpenAI 兼容 `POST /chat/completions`。当接口不可达或未配置时，系统自动回退到模板式 thought/response，不中断主流程。
+优先级如下：
+
+1. `LOCAL_MODEL_PATH` 指向的本地模型目录
+2. OpenAI 兼容 `POST /chat/completions`
+3. 模板式 thought/response 降级
+
+当上层路径不可达或未配置时，系统自动回退到下一层，不中断主流程。
 
 ## Rolling Summary
 
@@ -52,6 +59,7 @@
 
 ## API Surface
 
+- `GET /api/v1/language/llm/status`
 - `POST /api/v1/language/{agent_id}/messages`
 - `POST /api/v1/language/{agent_id}/think`
 - `GET /api/v1/language/{agent_id}/state`

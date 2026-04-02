@@ -3,14 +3,21 @@ from sqlalchemy.orm import Session
 
 from apps.api.app.schemas.language import (
     InnerThoughtResponse,
+    LLMStatusResponse,
     LanguageExchangeResponse,
     LanguageInputRequest,
     LanguageStateResponse,
 )
+from apps.api.app.services.language import llm
 from apps.api.app.services.language import get_language_state, run_language_thought_cycle, send_language_message
 from packages.infra.db.session import get_db
 
 router = APIRouter(prefix="/language", tags=["language"])
+
+
+@router.get("/llm/status", response_model=LLMStatusResponse)
+def get_llm_status_endpoint() -> LLMStatusResponse:
+    return llm.status()
 
 
 @router.post("/{agent_id}/messages", response_model=LanguageExchangeResponse)

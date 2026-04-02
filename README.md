@@ -110,6 +110,30 @@ $env:LLM_API_KEY="optional"
 
 未配置时会自动回退到当前内置模板响应，不会阻塞 API。
 
+推荐的本地方案是 `Ollama`。装好并启动后，用下面的配置即可：
+
+```powershell
+$env:LLM_API_BASE_URL="http://127.0.0.1:11434/v1"
+$env:LLM_MODEL="qwen2.5:1.5b"
+$env:LLM_API_KEY="ollama"
+```
+
+然后可以通过下面的接口检查当前是否真的连上了本地模型：
+
+```text
+GET http://127.0.0.1:8000/api/v1/language/llm/status
+```
+
+如果当前机器还没装好本地模型运行时，可以先参考仓库根目录的 `.env.example`。
+
+当前仓库也支持不依赖 `Ollama` 的本地 `Transformers` 小模型路径。默认会优先尝试：
+
+```text
+modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct
+```
+
+如果这个目录存在，语言模块会优先走本地 CPU 模型；只有本地模型不可用时，才会退到 OpenAI 兼容端点，再退到模板响应。
+
 ## 当前开发重点
 
 第一阶段建议优先完成：

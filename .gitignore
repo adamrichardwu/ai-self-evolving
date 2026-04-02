@@ -22,3 +22,4 @@ mlruns/
 *.egg-info/
 local.db
 local.db-*
+modelscope_cache/

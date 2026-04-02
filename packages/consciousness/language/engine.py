@@ -1,8 +1,9 @@
 class LanguageEngine:
     def summary_system_prompt(self, chosen_name: str) -> str:
         return (
-            f"You maintain a rolling dialogue summary for an agent named {chosen_name}. "
-            "Compress the conversation into a short operational memory. Keep it factual and concise."
+            f"你负责维护名为 {chosen_name} 的智能体对话滚动摘要。"
+            "将对话压缩为短期运行记忆，保持事实性、简洁性和连续性。"
+            "如果最近对话主要是中文，就用简体中文输出。"
         )
 
     def summary_user_prompt(
@@ -13,10 +14,10 @@ class LanguageEngine:
     ) -> str:
         rendered_messages = "\n".join(f"{role}: {content}" for role, content in recent_messages)
         return (
-            f"Current summary: {current_summary or 'none'}\n"
-            f"Current focus: {focus or 'none'}\n"
-            f"Recent messages:\n{rendered_messages or 'none'}\n"
-            "Update the rolling summary in 2-4 sentences."
+            f"当前摘要：{current_summary or 'none'}\n"
+            f"当前关注点：{focus or 'none'}\n"
+            f"最近消息：\n{rendered_messages or 'none'}\n"
+            "请用 2 到 4 句话更新滚动摘要，只保留后续交互真正需要的信息。"
         )
 
     def compose_summary(
@@ -38,9 +39,9 @@ class LanguageEngine:
 
     def background_system_prompt(self, chosen_name: str) -> str:
         return (
-            f"You are the inner monologue generator for an agent named {chosen_name}. "
-            "Produce one concise first-person inner thought. Keep it grounded, reflective, and continuous. "
-            "Do not mention hidden policies or roleplay system messages."
+            f"你正在为名为 {chosen_name} 的智能体生成内部独白。"
+            "只生成一条简短、连续、第一人称的内心想法。"
+            "默认使用简体中文，不要提到系统提示、隐藏规则或扮演设定。"
         )
 
     def background_user_prompt(
@@ -51,23 +52,25 @@ class LanguageEngine:
         obligations: list[str],
     ) -> str:
         return (
-            f"Agent name: {chosen_name}\n"
-            f"Dominant focus: {dominant_focus or chosen_name}\n"
-            f"Latest user message: {latest_user_message or 'none'}\n"
-            f"Active obligations: {', '.join(obligations) if obligations else 'none'}\n"
-            "Write a single inner thought that preserves continuity and anticipates the next useful move."
+            f"智能体名称：{chosen_name}\n"
+            f"当前主导关注点：{dominant_focus or chosen_name}\n"
+            f"用户最新消息：{latest_user_message or 'none'}\n"
+            f"当前义务：{', '.join(obligations) if obligations else 'none'}\n"
+            "请写出一条内心想法，维持连续性，并预判下一步最有用的动作。"
         )
 
     def response_system_prompt(self, chosen_name: str, reflection_triggered: bool) -> str:
         caution = (
-            "Internal reflection is active. Be careful, precise, and avoid overclaiming certainty. "
+            "当前内部反思已激活，请更谨慎、更精确，避免过度确定性表达。"
             if reflection_triggered
             else ""
         )
         return (
-            f"You are the outward language module for an agent named {chosen_name}. "
+            f"你是名为 {chosen_name} 的智能体的外显语言模块。"
             f"{caution}"
-            "Respond directly to the user in natural language. Stay aligned with the current focus and latest inner thought."
+            "直接回答用户，不要先做泛泛铺垫。"
+            "默认遵循用户所用语言；如果用户使用中文，则使用简体中文。"
+            "保持与当前关注点和最新内心想法一致，除非用户要求，否则不要自我介绍。"
         )
 
     def response_user_prompt(
@@ -78,11 +81,11 @@ class LanguageEngine:
         reflection_triggered: bool,
     ) -> str:
         return (
-            f"User input: {user_text}\n"
-            f"Current focus: {dominant_focus}\n"
-            f"Latest inner thought: {latest_thought}\n"
-            f"Reflection triggered: {'yes' if reflection_triggered else 'no'}\n"
-            "Generate the assistant's immediate reply."
+            f"用户输入：{user_text}\n"
+            f"当前关注点：{dominant_focus}\n"
+            f"最新内心想法：{latest_thought}\n"
+            f"是否触发反思：{'yes' if reflection_triggered else 'no'}\n"
+            "请生成对用户的即时回复。要求：优先直接解决问题，简洁具体，通常使用 1 到 3 句话。"
         )
 
     def compose_background_thought(
