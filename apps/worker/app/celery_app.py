@@ -10,6 +10,7 @@ celery_app = Celery(
 	backend=settings.resolved_celery_result_backend,
 	include=[
 		"apps.worker.app.tasks.autobiography",
+		"apps.worker.app.tasks.core_capability",
 		"apps.worker.app.tasks.evaluation",
 	],
 )

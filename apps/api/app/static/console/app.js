@@ -13,6 +13,14 @@ const counterpartRole = document.getElementById("counterpart-role");
 const counterpartRelationship = document.getElementById("counterpart-relationship");
 const identityStatus = document.getElementById("identity-status");
 const counterpartObligations = document.getElementById("counterpart-obligations");
+const evolutionChip = document.getElementById("evolution-chip");
+const evolutionDelta = document.getElementById("evolution-delta");
+const evolutionBenchmark = document.getElementById("evolution-benchmark");
+const evolutionBenchmarkShift = document.getElementById("evolution-benchmark-shift");
+const evolutionVerdict = document.getElementById("evolution-verdict");
+const evolutionHypothesis = document.getElementById("evolution-hypothesis");
+const evolutionPolicy = document.getElementById("evolution-policy");
+const evolutionMutations = document.getElementById("evolution-mutations");
 const goalList = document.getElementById("goal-list");
 const goalEmpty = document.getElementById("goal-empty");
 const messageList = document.getElementById("message-list");
@@ -25,6 +33,10 @@ const composerForm = document.getElementById("composer-form");
 const agentIdInput = document.getElementById("agent-id-input");
 const counterpartNameInput = document.getElementById("counterpart-name-input");
 const counterpartRoleInput = document.getElementById("counterpart-role-input");
+const evolutionForm = document.getElementById("evolution-form");
+const evolutionObjectiveInput = document.getElementById("evolution-objective-input");
+const evolutionButton = document.getElementById("evolution-button");
+const evolutionErrorText = document.getElementById("evolution-error-text");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 const errorText = document.getElementById("error-text");
@@ -185,6 +197,41 @@ function renderTraces(traces) {
   });
 }
 
+function renderEvolution(runs) {
+  const latest = runs.length ? runs[0] : null;
+  if (!latest) {
+    evolutionChip.textContent = "No run";
+    evolutionDelta.textContent = "0.0000";
+    evolutionBenchmark.textContent = "0.0000";
+    evolutionBenchmarkShift.textContent = "0.0000 -> 0.0000";
+    evolutionVerdict.textContent = "needs_review";
+    evolutionHypothesis.textContent = "No evolution hypothesis yet.";
+    evolutionPolicy.textContent = "No promoted policy yet.";
+    evolutionMutations.textContent = "No mutation proposals yet.";
+    return;
+  }
+
+  evolutionChip.textContent = latest.promoted ? "Promoted" : latest.strategy_status;
+  evolutionDelta.textContent = Number(latest.score_delta || 0).toFixed(4);
+  evolutionBenchmark.textContent = `${Number(latest.benchmark_score || 0).toFixed(4)} / ${Number(latest.utility_score || 0).toFixed(4)}`;
+  evolutionBenchmarkShift.textContent = `${Number(latest.baseline_benchmark_score || 0).toFixed(4)} -> ${Number(latest.benchmark_score || 0).toFixed(4)}`;
+  evolutionVerdict.textContent = latest.verdict || "needs_review";
+  evolutionHypothesis.textContent = latest.hypothesis_title
+    ? `${latest.hypothesis_title}: ${latest.hypothesis_description}`
+    : "No evolution hypothesis yet.";
+
+  const activePolicyEntries = Object.entries(latest.active_policy || {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${key}=${value}`);
+  evolutionPolicy.textContent = activePolicyEntries.length
+    ? activePolicyEntries.join(", ")
+    : "No promoted policy yet.";
+
+  evolutionMutations.textContent = (latest.mutations || []).length
+    ? latest.mutations.map((mutation) => mutation.title).join(" | ")
+    : "No mutation proposals yet.";
+}
+
 async function ensureAgent(agentId) {
   const response = await fetch("/api/v1/self-models", {
     method: "POST",
@@ -203,11 +250,12 @@ async function syncState() {
   counterpartRole.textContent = counterpartRoleInput.value.trim() || "operator";
 
   try {
-    const [languageResponse, runtimeResponse, selfModelResponse, relationshipResponse] = await Promise.all([
+    const [languageResponse, runtimeResponse, selfModelResponse, relationshipResponse, evolutionResponse] = await Promise.all([
       fetch(`/api/v1/language/${encodeURIComponent(agentId)}/state`),
       fetch(`/api/v1/runtime/${encodeURIComponent(agentId)}/state`),
       fetch(`/api/v1/self-models/${encodeURIComponent(agentId)}`),
       fetch(`/api/v1/social-memory/${encodeURIComponent(agentId)}/relationships/user-primary`),
+      fetch(`/api/v1/self-evolution/${encodeURIComponent(agentId)}`),
     ]);
 
     if (languageResponse.status === 404 || runtimeResponse.status === 404 || selfModelResponse.status === 404) {
@@ -225,12 +273,14 @@ async function syncState() {
     const runtime = await runtimeResponse.json();
     const selfModel = await selfModelResponse.json();
     const relationship = relationshipResponse.ok ? await relationshipResponse.json() : null;
+    const evolutionRuns = evolutionResponse.ok ? await evolutionResponse.json() : [];
     const identityContext = runtime.identity_context || {};
 
     renderMessages(state.messages || []);
     renderThoughts(state.thoughts || []);
     renderGoals(runtime.active_goals || []);
     renderTraces(runtime.recent_traces || []);
+    renderEvolution(evolutionRuns || []);
     loopLabel.textContent = state.background_loop_enabled ? "active" : "idle";
     summaryText.textContent = runtime.summary_text || state.summary?.summary_text || "No compressed memory yet.";
     focusLabel.textContent = runtime.current_focus || selfModel.snapshot.attention.current_focus || "awaiting interaction";
@@ -246,12 +296,45 @@ async function syncState() {
     counterpartObligations.textContent = (identityContext.social_obligations || relationship?.social_obligations || selfModel.snapshot.social.social_obligations || []).join(", ") || "No obligations loaded.";
     statusChip.textContent = "Connected";
     errorText.textContent = "";
+    evolutionErrorText.textContent = "";
   } catch (error) {
     statusChip.textContent = "API unavailable";
     renderTraces([]);
+    renderEvolution([]);
     errorText.textContent = error instanceof Error ? error.message : "Unknown error.";
   }
 }
+
+evolutionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const agentId = agentIdInput.value.trim() || "agent-web-console";
+  const objective = evolutionObjectiveInput.value.trim() || "improve self-consistency and adaptive behavior";
+
+  evolutionButton.disabled = true;
+  evolutionChip.textContent = "Running...";
+  evolutionErrorText.textContent = "";
+
+  try {
+    await ensureAgent(agentId);
+    const response = await fetch(`/api/v1/self-evolution/${encodeURIComponent(agentId)}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        objective,
+        evaluator_notes: "console-triggered evolution loop",
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || "Failed to run evolution loop.");
+    }
+    await syncState();
+  } catch (error) {
+    evolutionChip.textContent = "Run failed";
+    evolutionErrorText.textContent = error instanceof Error ? error.message : "Unknown error.";
+  } finally {
+    evolutionButton.disabled = false;
+  }
+});
 
 composerForm.addEventListener("submit", async (event) => {
   event.preventDefault();

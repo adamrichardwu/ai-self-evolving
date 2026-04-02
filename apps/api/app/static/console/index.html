@@ -116,6 +116,56 @@
             </div>
           </div>
         </article>
+
+        <article class="panel panel-evolution">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">Self Evolution</span>
+              <h2>Strategy loop</h2>
+            </div>
+            <span class="status-chip" id="evolution-chip">No run</span>
+          </header>
+          <dl class="identity-list evolution-list">
+            <div>
+              <dt>Last score delta</dt>
+              <dd id="evolution-delta">0.0000</dd>
+            </div>
+            <div>
+              <dt>Benchmark</dt>
+              <dd id="evolution-benchmark">0.0000</dd>
+            </div>
+            <div>
+              <dt>Baseline to candidate</dt>
+              <dd id="evolution-benchmark-shift">0.0000 -> 0.0000</dd>
+            </div>
+            <div>
+              <dt>Verdict</dt>
+              <dd id="evolution-verdict">needs_review</dd>
+            </div>
+            <div>
+              <dt>Hypothesis</dt>
+              <dd id="evolution-hypothesis">No evolution hypothesis yet.</dd>
+            </div>
+            <div>
+              <dt>Active policy</dt>
+              <dd id="evolution-policy">No promoted policy yet.</dd>
+            </div>
+            <div>
+              <dt>Recent mutations</dt>
+              <dd id="evolution-mutations">No mutation proposals yet.</dd>
+            </div>
+          </dl>
+          <form class="evolution-form" id="evolution-form">
+            <label class="field field-wide">
+              <span>Evolution objective</span>
+              <input id="evolution-objective-input" value="improve self-consistency and adaptive behavior" />
+            </label>
+            <div class="composer-actions evolution-actions">
+              <button type="submit" id="evolution-button">Run evolution loop</button>
+              <p class="error-text" id="evolution-error-text"></p>
+            </div>
+          </form>
+        </article>
       </section>
 
       <section class="workspace-grid">

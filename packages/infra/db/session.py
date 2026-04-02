@@ -54,6 +54,24 @@ def _ensure_sqlite_schema() -> None:
 						text(f"ALTER TABLE language_summaries ADD COLUMN {column_name} {definition}")
 					)
 
+		if "evolution_runs" in tables:
+			existing_columns = {
+				row[1]
+				for row in connection.execute(text("PRAGMA table_info(evolution_runs)")).all()
+			}
+			column_definitions = {
+				"baseline_benchmark_score": "FLOAT NOT NULL DEFAULT 0.0",
+				"benchmark_score": "FLOAT NOT NULL DEFAULT 0.0",
+				"utility_score": "FLOAT NOT NULL DEFAULT 0.0",
+				"verdict": "VARCHAR(32) NOT NULL DEFAULT 'needs_review'",
+				"benchmark_results_json": "JSON NOT NULL DEFAULT '[]'",
+			}
+			for column_name, definition in column_definitions.items():
+				if column_name not in existing_columns:
+					connection.execute(
+						text(f"ALTER TABLE evolution_runs ADD COLUMN {column_name} {definition}")
+					)
+
 
 def init_db() -> None:
 	from packages.consciousness.language import persistence as _language_persistence  # noqa: F401

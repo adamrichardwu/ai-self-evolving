@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
     celery_local_data_dir: str = ".celery"
+    core_capability_export_dir: str = "artifacts/core_capability"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

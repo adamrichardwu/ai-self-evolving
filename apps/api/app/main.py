@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from apps.api.app.routes.autobiography import router as autobiography_router
 from apps.api.app.routes.consciousness_evaluation import router as consciousness_evaluation_router
+from apps.api.app.routes.core_capability import router as core_capability_router
 from apps.api.app.routes.evolution import router as evolution_router
 from apps.api.app.routes.goals import router as goals_router
 from apps.api.app.routes.health import router as health_router
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(evolution_router, prefix=settings.api_prefix)
     app.include_router(goals_router, prefix=settings.api_prefix)
     app.include_router(language_router, prefix=settings.api_prefix)
+    app.include_router(core_capability_router, prefix=settings.api_prefix)
     app.include_router(runtime_router, prefix=settings.api_prefix)
     app.include_router(tasks_router, prefix=settings.api_prefix)
     app.include_router(self_model_router, prefix=settings.api_prefix)

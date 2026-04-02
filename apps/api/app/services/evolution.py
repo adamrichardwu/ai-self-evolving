@@ -1,7 +1,12 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from apps.api.app.schemas.evolution import CreateEvolutionRunRequest, EvolutionMutationResponse, EvolutionRunResponse
+from apps.api.app.schemas.evolution import (
+    CreateEvolutionRunRequest,
+    EvolutionBenchmarkResultResponse,
+    EvolutionMutationResponse,
+    EvolutionRunResponse,
+)
 from packages.consciousness.evaluation.metrics import ConsciousnessEvaluationScore
 from packages.consciousness.evaluation.runner import evaluate_self_model_snapshot
 from packages.consciousness.language.persistence import LanguageSummaryRecord
@@ -21,6 +26,7 @@ from packages.consciousness.self_model.state import (
 from packages.evolution.hypotheses.generator import generate_hypothesis_from_failure
 from packages.evolution.persistence import EvolutionRunRecord
 from packages.evolution.variants.factory import build_variant
+from packages.evaluation.runners.strategy_runner import evaluate_strategy_variant
 
 
 def _record_to_snapshot(record: SelfModelRecord) -> SelfModelSnapshot:
@@ -48,6 +54,23 @@ def _to_mutation_response(payload: dict) -> EvolutionMutationResponse:
     )
 
 
+def _normalize_benchmark_result(payload: dict) -> EvolutionBenchmarkResultResponse:
+    if "prompt" in payload and "baseline_score" in payload and "candidate_score" in payload:
+        return EvolutionBenchmarkResultResponse(**payload)
+
+    legacy_score = float(payload.get("score", 0.0))
+    legacy_passed = bool(payload.get("passed", False))
+    return EvolutionBenchmarkResultResponse(
+        name=payload.get("name", "legacy_case"),
+        prompt=payload.get("prompt", payload.get("name", "legacy_case")),
+        baseline_passed=False,
+        baseline_score=0.0,
+        candidate_passed=legacy_passed,
+        candidate_score=legacy_score,
+        rationale=payload.get("rationale", "Migrated from legacy benchmark result format."),
+    )
+
+
 def _to_run_response(record: EvolutionRunRecord) -> EvolutionRunResponse:
     return EvolutionRunResponse(
         id=record.id,
@@ -60,10 +83,15 @@ def _to_run_response(record: EvolutionRunRecord) -> EvolutionRunResponse:
         baseline_overall_score=record.baseline_overall_score,
         candidate_overall_score=record.candidate_overall_score,
         score_delta=record.score_delta,
+        benchmark_score=record.benchmark_score,
+        baseline_benchmark_score=record.baseline_benchmark_score,
+        utility_score=record.utility_score,
+        verdict=record.verdict,
         hypothesis_title=record.hypothesis_title,
         hypothesis_description=record.hypothesis_description,
         active_policy=record.active_policy_json or {},
         mutations=[_to_mutation_response(item) for item in (record.mutations_json or [])],
+        benchmark_results=[_normalize_benchmark_result(item) for item in (record.benchmark_results_json or [])],
         evaluator_notes=record.evaluator_notes,
     )
 
@@ -224,8 +252,13 @@ def create_evolution_run(db: Session, agent_id: str, request: CreateEvolutionRun
         summary_text,
     )
     candidate_score = _estimate_candidate_score(baseline_score, candidate_policy, len(mutations))
+    benchmark_evaluation = evaluate_strategy_variant(variant, candidate_policy, current_policy)
     score_delta = candidate_score.overall_score - baseline_score.overall_score
-    promoted = score_delta >= 0.02
+    baseline_benchmark_score = float(benchmark_evaluation["baseline_benchmark_score"])
+    benchmark_score = float(benchmark_evaluation["benchmark_score"])
+    utility_score = float(benchmark_evaluation["utility_score"])
+    verdict = str(benchmark_evaluation["verdict"])
+    promoted = verdict == "promote" and score_delta >= 0.01
     rollback_required = not promoted
 
     if promoted and current_active is not None:
@@ -242,11 +275,16 @@ def create_evolution_run(db: Session, agent_id: str, request: CreateEvolutionRun
         baseline_overall_score=baseline_score.overall_score,
         candidate_overall_score=candidate_score.overall_score,
         score_delta=score_delta,
+        baseline_benchmark_score=baseline_benchmark_score,
+        benchmark_score=benchmark_score,
+        utility_score=utility_score,
+        verdict=verdict,
         hypothesis_title=hypothesis.title,
         hypothesis_description=hypothesis.description,
         variant_id=variant.id,
         active_policy_json=candidate_policy,
         mutations_json=mutations,
+        benchmark_results_json=benchmark_evaluation["benchmark_results"],
         evaluator_notes=request.evaluator_notes,
     )
     db.add(run)
