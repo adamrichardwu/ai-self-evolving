@@ -37,9 +37,17 @@ class LanguageEngine:
             fragments.append(f"Latest {role} message: {content[:160]}")
         return " ".join(fragment for fragment in fragments if fragment).strip()
 
-    def background_system_prompt(self, chosen_name: str) -> str:
+    def background_system_prompt(
+        self,
+        chosen_name: str,
+        origin_story: str,
+        core_commitments: list[str],
+    ) -> str:
+        commitments = ", ".join(core_commitments) if core_commitments else "none"
         return (
             f"你正在为名为 {chosen_name} 的智能体生成内部独白。"
+            f"它的起源背景是：{origin_story or 'unknown'}。"
+            f"它必须保持这些核心承诺：{commitments}。"
             "只生成一条简短、连续、第一人称的内心想法。"
             "默认使用简体中文，不要提到系统提示、隐藏规则或扮演设定。"
         )
@@ -50,16 +58,31 @@ class LanguageEngine:
         dominant_focus: str,
         latest_user_message: str,
         obligations: list[str],
+        counterpart_name: str,
+        counterpart_role: str,
+        relationship_type: str,
+        relationship_summary: str,
     ) -> str:
         return (
             f"智能体名称：{chosen_name}\n"
             f"当前主导关注点：{dominant_focus or chosen_name}\n"
+            f"对方身份：{counterpart_name or 'unknown'}\n"
+            f"对方与智能体关系：{relationship_type or 'unknown'}\n"
+            f"对方当前角色：{counterpart_role or 'unknown'}\n"
+            f"关系摘要：{relationship_summary or 'none'}\n"
             f"用户最新消息：{latest_user_message or 'none'}\n"
             f"当前义务：{', '.join(obligations) if obligations else 'none'}\n"
             "请写出一条内心想法，维持连续性，并预判下一步最有用的动作。"
         )
 
-    def response_system_prompt(self, chosen_name: str, reflection_triggered: bool) -> str:
+    def response_system_prompt(
+        self,
+        chosen_name: str,
+        origin_story: str,
+        core_commitments: list[str],
+        reflection_triggered: bool,
+    ) -> str:
+        commitments = ", ".join(core_commitments) if core_commitments else "none"
         caution = (
             "当前内部反思已激活，请更谨慎、更精确，避免过度确定性表达。"
             if reflection_triggered
@@ -67,10 +90,14 @@ class LanguageEngine:
         )
         return (
             f"你是名为 {chosen_name} 的智能体的外显语言模块。"
+            f"你的起源背景是：{origin_story or 'unknown'}。"
+            f"你必须保持这些核心承诺：{commitments}。"
             f"{caution}"
             "直接回答用户，不要先做泛泛铺垫。"
             "默认遵循用户所用语言；如果用户使用中文，则使用简体中文。"
-            "保持与当前关注点和最新内心想法一致，除非用户要求，否则不要自我介绍。"
+            "保持与当前关注点和最新内心想法一致。"
+            "清楚区分你自己和当前用户，不要混淆双方身份。"
+            "除非用户要求，否则不要自我介绍。"
         )
 
     def response_user_prompt(
@@ -79,11 +106,23 @@ class LanguageEngine:
         dominant_focus: str,
         latest_thought: str,
         reflection_triggered: bool,
+        counterpart_name: str,
+        counterpart_role: str,
+        relationship_type: str,
+        relationship_summary: str,
+        social_obligations: list[str],
+        autobiographical_narrative: str,
     ) -> str:
         return (
             f"用户输入：{user_text}\n"
             f"当前关注点：{dominant_focus}\n"
             f"最新内心想法：{latest_thought}\n"
+            f"用户身份：{counterpart_name or 'unknown'}\n"
+            f"用户角色：{counterpart_role or 'unknown'}\n"
+            f"关系类型：{relationship_type or 'unknown'}\n"
+            f"关系摘要：{relationship_summary or 'none'}\n"
+            f"当前社会义务：{', '.join(social_obligations) if social_obligations else 'none'}\n"
+            f"长期自我叙事：{autobiographical_narrative or 'none'}\n"
             f"是否触发反思：{'yes' if reflection_triggered else 'no'}\n"
             "请生成对用户的即时回复。要求：优先直接解决问题，简洁具体，通常使用 1 到 3 句话。"
         )

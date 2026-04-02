@@ -15,7 +15,7 @@ from apps.api.app.schemas.social import SocialInteractionContextSchema
 from apps.api.app.services.goals import list_goals, refresh_goals
 from apps.api.app.services.llm import OpenAICompatibleLLM
 from apps.api.app.services.self_model import apply_runtime_self_model_update, get_self_model_by_agent_id
-from apps.api.app.services.social import record_social_interaction
+from apps.api.app.services.social import get_social_relationship, record_social_interaction
 from packages.consciousness.language.engine import LanguageEngine
 from packages.consciousness.language.persistence import (
     InnerThoughtRecord,
@@ -72,6 +72,24 @@ def _active_goals_snapshot(db: Session, agent_id: str) -> tuple[str, list[GoalRe
     active_goals = list_goals(db, agent_id, active_only=True) or []
     dominant_goal = active_goals[0].title if active_goals else ""
     return dominant_goal, active_goals
+
+
+def _relationship_context(
+    db: Session,
+    agent_id: str,
+    counterpart_id: str,
+    fallback_name: str,
+    fallback_relationship_type: str,
+) -> tuple[str, str, str, str]:
+    relationship = get_social_relationship(db, agent_id, counterpart_id)
+    if relationship is None:
+        return fallback_name, "dialogue_partner", fallback_relationship_type, ""
+    return (
+        relationship.counterpart_name or fallback_name,
+        relationship.role_in_context or "dialogue_partner",
+        relationship.relationship_type or fallback_relationship_type,
+        relationship.last_interaction_summary,
+    )
 
 
 def _latest_message(db: Session, self_model_id: str, role: str | None = None) -> LanguageMessageRecord | None:
@@ -239,15 +257,30 @@ def run_language_thought_cycle(
             obligations=self_model.snapshot.social.social_obligations,
         )
     )
+    counterpart_name, counterpart_role, relationship_type, relationship_summary = _relationship_context(
+        db,
+        agent_id,
+        "user-primary",
+        "User",
+        "user",
+    )
 
     engine = LanguageEngine()
     llm_thought = llm.generate(
-        system_prompt=engine.background_system_prompt(self_model.snapshot.identity.chosen_name),
+        system_prompt=engine.background_system_prompt(
+            self_model.snapshot.identity.chosen_name,
+            self_model.snapshot.identity.origin_story,
+            self_model.snapshot.identity.core_commitments,
+        ),
         user_prompt=engine.background_user_prompt(
             chosen_name=self_model.snapshot.identity.chosen_name,
             dominant_focus=workspace.dominant_focus,
             latest_user_message=latest_user_message.content if latest_user_message is not None else "",
             obligations=self_model.snapshot.social.social_obligations,
+            counterpart_name=counterpart_name,
+            counterpart_role=counterpart_role,
+            relationship_type=relationship_type,
+            relationship_summary=relationship_summary,
         ),
         temperature=0.6,
     )
@@ -315,6 +348,13 @@ def send_language_message(
         refreshed_self_model.snapshot.attention.current_focus
         or refreshed_self_model.snapshot.identity.chosen_name
     )
+    counterpart_name, counterpart_role, relationship_type, relationship_summary = _relationship_context(
+        db,
+        agent_id,
+        request.counterpart_id,
+        request.counterpart_name,
+        request.relationship_type,
+    )
     latest_thought = _latest_thought(db, record.id)
     latest_thought_text = latest_thought.content if latest_thought is not None else ""
 
@@ -350,13 +390,19 @@ def send_language_message(
     language_engine = LanguageEngine()
     llm_reaction_thought = llm.generate(
         system_prompt=language_engine.background_system_prompt(
-            refreshed_self_model.snapshot.identity.chosen_name
+            refreshed_self_model.snapshot.identity.chosen_name,
+            refreshed_self_model.snapshot.identity.origin_story,
+            refreshed_self_model.snapshot.identity.core_commitments,
         ),
         user_prompt=language_engine.background_user_prompt(
             chosen_name=refreshed_self_model.snapshot.identity.chosen_name,
             dominant_focus=workspace.dominant_focus or current_focus,
             latest_user_message=request.text.strip(),
             obligations=refreshed_self_model.snapshot.social.social_obligations,
+            counterpart_name=counterpart_name,
+            counterpart_role=counterpart_role,
+            relationship_type=relationship_type,
+            relationship_summary=relationship_summary,
         ),
         temperature=0.6,
     )
@@ -380,6 +426,8 @@ def send_language_message(
     llm_response = llm.generate(
         system_prompt=language_engine.response_system_prompt(
             refreshed_self_model.snapshot.identity.chosen_name,
+            refreshed_self_model.snapshot.identity.origin_story,
+            refreshed_self_model.snapshot.identity.core_commitments,
             reflection.triggered,
         ),
         user_prompt=language_engine.response_user_prompt(
@@ -387,6 +435,12 @@ def send_language_message(
             dominant_focus=workspace.dominant_focus or current_focus,
             latest_thought=reaction_thought,
             reflection_triggered=reflection.triggered,
+            counterpart_name=counterpart_name,
+            counterpart_role=counterpart_role,
+            relationship_type=relationship_type,
+            relationship_summary=relationship_summary,
+            social_obligations=refreshed_self_model.snapshot.social.social_obligations,
+            autobiographical_narrative=refreshed_self_model.snapshot.autobiography.long_term_narrative,
         ),
         temperature=0.7,
     )

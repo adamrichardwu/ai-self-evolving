@@ -269,13 +269,50 @@ def test_llm_status_prefers_local_transformers_model(monkeypatch) -> None:
 
 def test_language_engine_response_prompt_prefers_chinese_for_chinese_input() -> None:
     engine = LanguageEngine()
-    system_prompt = engine.response_system_prompt("Astra", reflection_triggered=False)
+    system_prompt = engine.response_system_prompt(
+        "Astra",
+        origin_story="Bootstrapped from a continuity-focused prototype.",
+        core_commitments=["truthfulness", "continuity"],
+        reflection_triggered=False,
+    )
     user_prompt = engine.response_user_prompt(
         user_text="请直接告诉我你现在最关注什么。",
         dominant_focus="维持连续交互",
         latest_thought="我应该先给出直接答案。",
         reflection_triggered=False,
+        counterpart_name="Primary User",
+        counterpart_role="operator",
+        relationship_type="operator",
+        relationship_summary="Primary User is the main operator and expects continuity.",
+        social_obligations=["be responsive"],
+        autobiographical_narrative="I am building a stable long-term interaction style.",
     )
 
     assert "如果用户使用中文，则使用简体中文" in system_prompt
+    assert "清楚区分你自己和当前用户" in system_prompt
     assert "优先直接解决问题" in user_prompt
+    assert "用户身份：Primary User" in user_prompt
+
+
+def test_language_engine_background_prompt_anchors_self_and_user_identity() -> None:
+    engine = LanguageEngine()
+    system_prompt = engine.background_system_prompt(
+        chosen_name="Astra",
+        origin_story="Started as a self-evolving local agent prototype.",
+        core_commitments=["truthfulness"],
+    )
+    user_prompt = engine.background_user_prompt(
+        chosen_name="Astra",
+        dominant_focus="maintain continuity",
+        latest_user_message="Please remember who I am.",
+        obligations=["be responsive"],
+        counterpart_name="Primary User",
+        counterpart_role="operator",
+        relationship_type="operator",
+        relationship_summary="Primary User supervises the system and values continuity.",
+    )
+
+    assert "起源背景" in system_prompt
+    assert "核心承诺" in system_prompt
+    assert "对方身份：Primary User" in user_prompt
+    assert "关系摘要：Primary User supervises the system and values continuity." in user_prompt
