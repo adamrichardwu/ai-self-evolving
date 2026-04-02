@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.app.core.settings import settings
+from apps.api.app.schemas.goals import GoalResponse
 from apps.api.app.schemas.language import (
     InnerThoughtResponse,
     LanguageExchangeResponse,
@@ -11,6 +12,7 @@ from apps.api.app.schemas.language import (
     LanguageStateResponse,
 )
 from apps.api.app.schemas.social import SocialInteractionContextSchema
+from apps.api.app.services.goals import list_goals, refresh_goals
 from apps.api.app.services.llm import OpenAICompatibleLLM
 from apps.api.app.services.self_model import apply_runtime_self_model_update, get_self_model_by_agent_id
 from apps.api.app.services.social import record_social_interaction
@@ -64,6 +66,12 @@ def _to_summary_response(record: LanguageSummaryRecord) -> LanguageSummaryRespon
         message_count=record.message_count,
         last_focus=record.last_focus,
     )
+
+
+def _active_goals_snapshot(db: Session, agent_id: str) -> tuple[str, list[GoalResponse]]:
+    active_goals = list_goals(db, agent_id, active_only=True) or []
+    dominant_goal = active_goals[0].title if active_goals else ""
+    return dominant_goal, active_goals
 
 
 def _latest_message(db: Session, self_model_id: str, role: str | None = None) -> LanguageMessageRecord | None:
@@ -416,12 +424,20 @@ def send_language_message(
         update_reason="language_interaction",
     )
 
+    goals_refresh = refresh_goals(db, agent_id)
+    dominant_goal, active_goals = _active_goals_snapshot(db, agent_id)
+    if goals_refresh is not None and goals_refresh.dominant_goal:
+        dominant_goal = goals_refresh.dominant_goal
+        active_goals = goals_refresh.goals
+
     db.refresh(thought_record)
     db.refresh(assistant_message)
     return LanguageExchangeResponse(
         assistant_message=_to_message_response(assistant_message),
         inner_thought=_to_thought_response(thought_record),
         current_focus=workspace.dominant_focus or current_focus,
+        dominant_goal=dominant_goal,
+        active_goals=active_goals,
         reflection_triggered=reflection.triggered,
     )
 
@@ -446,10 +462,13 @@ def get_language_state(
         .limit(thought_limit)
     ).all()
     summary = _get_language_summary(db, record.id)
+    dominant_goal, active_goals = _active_goals_snapshot(db, agent_id)
     return LanguageStateResponse(
         agent_id=agent_id,
         background_loop_enabled=settings.language_background_loop_enabled,
         summary=_to_summary_response(summary) if summary is not None else None,
+        dominant_goal=dominant_goal,
+        active_goals=active_goals,
         messages=[_to_message_response(item) for item in reversed(messages)],
         thoughts=[_to_thought_response(item) for item in reversed(thoughts)],
     )

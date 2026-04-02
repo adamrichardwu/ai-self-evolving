@@ -91,6 +91,8 @@ def test_language_message_generates_reaction_and_persists_dialogue() -> None:
     assert body["assistant_message"]["content"] != ""
     assert body["inner_thought"]["content"] != ""
     assert body["current_focus"] != ""
+    assert body["dominant_goal"] != ""
+    assert len(body["active_goals"]) >= 1
 
     state_response = client.get(f"/api/v1/language/{agent_id}/state")
     assert state_response.status_code == 200
@@ -99,11 +101,15 @@ def test_language_message_generates_reaction_and_persists_dialogue() -> None:
     assert len(state["thoughts"]) >= 1
     assert state["summary"] is not None
     assert state["summary"]["summary_text"] != ""
+    assert state["dominant_goal"] != ""
+    assert len(state["active_goals"]) >= 1
 
     self_model_response = client.get(f"/api/v1/self-models/{agent_id}")
     assert self_model_response.status_code == 200
     model = self_model_response.json()
     assert model["snapshot"]["attention"]["current_focus"] != ""
+    assert model["snapshot"]["attention"]["dominant_goal"] != ""
+    assert model["snapshot"]["goals"]["active_task_goals"] != []
 
 
 def test_language_message_uses_llm_when_configured(monkeypatch) -> None:
@@ -202,6 +208,8 @@ def test_language_state_exposes_rolling_summary() -> None:
     assert state["summary"] is not None
     assert state["summary"]["message_count"] >= 4
     assert state["summary"]["summary_text"] != ""
+    assert state["dominant_goal"] != ""
+    assert len(state["active_goals"]) >= 1
 
 
 def test_llm_status_reports_unconfigured_mode() -> None:

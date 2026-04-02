@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from apps.api.app.schemas.goals import GoalResponse
+
 
 class LanguageInputRequest(BaseModel):
     text: str = Field(min_length=1)
@@ -47,6 +49,8 @@ class LanguageExchangeResponse(BaseModel):
     assistant_message: LanguageMessageResponse
     inner_thought: InnerThoughtResponse
     current_focus: str
+    dominant_goal: str = ""
+    active_goals: list[GoalResponse] = Field(default_factory=list)
     reflection_triggered: bool
 
 
@@ -54,5 +58,7 @@ class LanguageStateResponse(BaseModel):
     agent_id: str
     background_loop_enabled: bool
     summary: LanguageSummaryResponse | None = None
+    dominant_goal: str = ""
+    active_goals: list[GoalResponse] = Field(default_factory=list)
     messages: list[LanguageMessageResponse] = Field(default_factory=list)
     thoughts: list[InnerThoughtResponse] = Field(default_factory=list)
