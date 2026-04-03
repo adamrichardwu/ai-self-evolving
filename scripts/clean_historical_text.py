@@ -1,8 +1,6 @@
 import argparse
-import re
 import sys
 from collections import Counter
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,31 +15,8 @@ from packages.consciousness.goals.persistence import GoalRecord
 from packages.consciousness.language.persistence import LanguageSummaryRecord
 from packages.consciousness.runtime.persistence import RuntimeTraceRecord
 from packages.consciousness.self_model.persistence import SelfModelRecord
+from packages.consciousness.text.sanitization import sanitize_nested_text
 from packages.infra.db.session import SessionLocal, init_db
-
-
-def _normalize_whitespace(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
-
-
-def _normalize_mixed_spacing(text: str) -> str:
-    normalized = _normalize_whitespace(text)
-    if not normalized:
-        return ""
-    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", normalized)
-    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：,.!?;:])", "", normalized)
-    normalized = re.sub(r"(?<=[，。！？；：,.!?;:])\s+(?=[\u4e00-\u9fff])", "", normalized)
-    return normalized
-
-
-def _sanitize_value(value: Any) -> Any:
-    if isinstance(value, str):
-        return _normalize_mixed_spacing(value)
-    if isinstance(value, Mapping):
-        return {key: _sanitize_value(item) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_sanitize_value(item) for item in value]
-    return value
 
 
 @dataclass(slots=True)
@@ -58,7 +33,7 @@ def _update_record_fields(record: Any, field_names: list[str], stats: CleanupSta
     row_changed = False
     for field_name in field_names:
         current_value = getattr(record, field_name)
-        cleaned_value = _sanitize_value(current_value)
+        cleaned_value = sanitize_nested_text(current_value)
         if cleaned_value == current_value:
             continue
         row_changed = True

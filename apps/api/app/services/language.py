@@ -1,5 +1,3 @@
-import re
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,6 +27,10 @@ from packages.consciousness.metacognition.engine import MetacognitiveMonitor
 from packages.consciousness.metacognition.state import MetacognitiveSummary
 from packages.consciousness.reflection.engine import ReflectiveLoopEngine
 from packages.consciousness.self_model.persistence import SelfModelRecord
+from packages.consciousness.text.sanitization import contains_cjk as _contains_cjk
+from packages.consciousness.text.sanitization import normalize_mixed_spacing as _normalize_mixed_spacing
+from packages.consciousness.text.sanitization import sanitize_focus_text as _sanitize_focus_text
+from packages.consciousness.text.sanitization import sanitize_thought_text as _sanitize_thought_text
 from packages.consciousness.workspace.engine import GlobalWorkspaceEngine
 from packages.consciousness.workspace.state import WorkspaceSignal
 
@@ -36,126 +38,9 @@ from packages.consciousness.workspace.state import WorkspaceSignal
 llm = OpenAICompatibleLLM()
 
 
-def _contains_cjk(text: str) -> bool:
-    return any("\u4e00" <= character <= "\u9fff" for character in text)
-
-
 def _matches_any(text: str, phrases: list[str]) -> bool:
     lowered = text.lower()
     return any(phrase in lowered for phrase in phrases)
-
-
-def _normalize_whitespace(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
-
-
-def _normalize_mixed_spacing(text: str) -> str:
-    normalized = _normalize_whitespace(text)
-    if not normalized:
-        return ""
-    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", normalized)
-    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：,.!?;:])", "", normalized)
-    normalized = re.sub(r"(?<=[，。！？；：,.!?;:])\s+(?=[\u4e00-\u9fff])", "", normalized)
-    return normalized
-
-
-def _normalize_repeat_key(text: str) -> str:
-    return "".join(character.casefold() for character in _normalize_mixed_spacing(text) if character.isalnum())
-
-
-def _split_text_units(text: str) -> list[str]:
-    normalized = _normalize_mixed_spacing(text)
-    if not normalized:
-        return []
-    units = [
-        unit.strip()
-        for unit in re.findall(r"[^。！？.!?;；\n]+(?:[。！？.!?;；]+)?", normalized)
-        if unit.strip()
-    ]
-    return units or [normalized]
-
-
-def _dedupe_text_units(units: list[str]) -> list[str]:
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for unit in units:
-        key = _normalize_repeat_key(unit)
-        if not key:
-            continue
-        if deduped and key == _normalize_repeat_key(deduped[-1]):
-            continue
-        if key in seen and len(units) > 1:
-            continue
-        deduped.append(unit)
-        seen.add(key)
-    return deduped
-
-
-def _join_text_units(units: list[str]) -> str:
-    cleaned_units = [unit.strip() for unit in units if unit.strip()]
-    if not cleaned_units:
-        return ""
-    if any(_contains_cjk(unit) for unit in cleaned_units):
-        return "".join(cleaned_units)
-    return " ".join(cleaned_units)
-
-
-def _truncate_text(text: str, max_length: int) -> str:
-    normalized = _normalize_mixed_spacing(text)
-    if len(normalized) <= max_length:
-        return normalized
-    truncated = normalized[: max_length - 3].rstrip(" ,，;；")
-    return f"{truncated}..."
-
-
-def _limit_text_units(units: list[str], max_length: int) -> str:
-    limited: list[str] = []
-    for unit in units:
-        candidate = _join_text_units([*limited, unit])
-        if limited and len(candidate) > max_length:
-            break
-        limited.append(unit)
-        if len(candidate) >= max_length:
-            break
-    return _join_text_units(limited)
-
-
-def _limit_thought_sentences(units: list[str], max_sentences: int, max_length: int) -> str:
-    limited = units[:max_sentences]
-    while limited:
-        joined = _join_text_units(limited)
-        if len(joined) <= max_length:
-            return joined
-        limited = limited[:-1]
-    return ""
-
-
-def _sanitize_focus_text(text: str, fallback: str) -> str:
-    units = _dedupe_text_units(_split_text_units(text))
-    focus = units[0] if units else _normalize_mixed_spacing(fallback)
-    focus = _truncate_text(focus, 120).strip(" .,!?:;，。！？；：")
-    if focus:
-        return focus
-    fallback_focus = _truncate_text(_normalize_mixed_spacing(fallback), 120).strip(" .,!?:;，。！？；：")
-    return fallback_focus or "maintain coherent interaction"
-
-
-def _sanitize_thought_text(text: str, fallback_text: str, previous_text: str = "") -> str:
-    units = _dedupe_text_units(_split_text_units(text))
-    cleaned = _limit_thought_sentences(units, max_sentences=3, max_length=280)
-    if not cleaned:
-        cleaned = _limit_text_units(units, 280) or _truncate_text(_join_text_units(units), 280)
-    previous_key = _normalize_repeat_key(previous_text)
-    if cleaned and previous_key and _normalize_repeat_key(cleaned) == previous_key:
-        cleaned = ""
-    if cleaned:
-        return cleaned
-
-    fallback_units = _dedupe_text_units(_split_text_units(fallback_text))
-    fallback = _limit_thought_sentences(fallback_units, max_sentences=3, max_length=280)
-    if not fallback:
-        fallback = _limit_text_units(fallback_units, 280) or _truncate_text(_join_text_units(fallback_units), 280)
-    return fallback or _truncate_text(_normalize_mixed_spacing(fallback_text), 280)
 
 
 def _is_identity_question(user_text: str) -> bool:
