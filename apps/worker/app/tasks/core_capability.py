@@ -1,6 +1,7 @@
 from packages.infra.db.session import SessionLocal
 
 from apps.api.app.schemas.core_capability import (
+    CreateCoreCapabilityPromotionRequest,
     CreateCoreCapabilityEvaluationRequest,
     CreateCoreCapabilityExportRequest,
     CreateCoreCapabilityTrainingJobRequest,
@@ -10,6 +11,7 @@ from apps.api.app.services.core_capability import (
     evaluate_core_capability_export,
     evaluate_core_capability_training_run,
     export_core_capability_dataset_bundle,
+    promote_core_capability_training_candidate,
     prepare_core_capability_training_job,
 )
 from apps.worker.app.celery_app import celery_app
@@ -83,4 +85,18 @@ def evaluate_core_capability_training_run_task(payload: dict | None = None) -> d
         "preference_margin_candidate": result.preference_margin_candidate,
         "overall_delta": result.overall_delta,
         "verdict": result.verdict,
+    }
+
+
+@celery_app.task(name="core_capability.promote_training_candidate")
+def promote_core_capability_training_candidate_task(payload: dict | None = None) -> dict[str, str]:
+    request = CreateCoreCapabilityPromotionRequest(**(payload or {}))
+    result = promote_core_capability_training_candidate(request)
+    return {
+        "status": result.status,
+        "verdict": result.verdict,
+        "evaluation_path": result.evaluation_path,
+        "activation_manifest_path": result.activation_manifest_path,
+        "active_model_path": result.active_model_path,
+        "previous_model_path": result.previous_model_path,
     }

@@ -15,6 +15,7 @@ class OpenAICompatibleLLM:
         return bool(settings.llm_api_base_url and settings.llm_model)
 
     def status(self) -> LLMStatusResponse:
+        local_configuration = local_llm.describe_configuration()
         local_ready, local_detail = local_llm.status()
         if local_ready:
             return LLMStatusResponse(
@@ -22,8 +23,14 @@ class OpenAICompatibleLLM:
                 reachable=True,
                 mode="local-transformers",
                 api_base_url=None,
-                model=settings.local_model_path,
+                model=local_configuration["effective_model_path"],
                 detail=local_detail,
+                default_model_path=local_configuration["default_model_path"],
+                active_model_manifest_path=local_configuration["active_model_manifest_path"],
+                active_model_manifest_present=local_configuration["active_model_manifest_present"],
+                active_model_path=local_configuration["active_model_path"],
+                effective_model_path=local_configuration["effective_model_path"],
+                loaded_model_path=local_configuration["loaded_model_path"],
             )
 
         if not self.is_configured():
@@ -34,6 +41,12 @@ class OpenAICompatibleLLM:
                 api_base_url=settings.llm_api_base_url,
                 model=settings.llm_model,
                 detail="LLM_API_BASE_URL or LLM_MODEL is not configured.",
+                default_model_path=local_configuration["default_model_path"],
+                active_model_manifest_path=local_configuration["active_model_manifest_path"],
+                active_model_manifest_present=local_configuration["active_model_manifest_present"],
+                active_model_path=local_configuration["active_model_path"],
+                effective_model_path=local_configuration["effective_model_path"],
+                loaded_model_path=local_configuration["loaded_model_path"],
             )
 
         url = settings.llm_api_base_url.rstrip("/") + "/models"
@@ -53,6 +66,12 @@ class OpenAICompatibleLLM:
                 api_base_url=settings.llm_api_base_url,
                 model=settings.llm_model,
                 detail=f"Configured but unreachable: {exc.__class__.__name__}",
+                default_model_path=local_configuration["default_model_path"],
+                active_model_manifest_path=local_configuration["active_model_manifest_path"],
+                active_model_manifest_present=local_configuration["active_model_manifest_present"],
+                active_model_path=local_configuration["active_model_path"],
+                effective_model_path=local_configuration["effective_model_path"],
+                loaded_model_path=local_configuration["loaded_model_path"],
             )
 
         return LLMStatusResponse(
@@ -62,6 +81,12 @@ class OpenAICompatibleLLM:
             api_base_url=settings.llm_api_base_url,
             model=settings.llm_model,
             detail="Configured endpoint responded successfully.",
+            default_model_path=local_configuration["default_model_path"],
+            active_model_manifest_path=local_configuration["active_model_manifest_path"],
+            active_model_manifest_present=local_configuration["active_model_manifest_present"],
+            active_model_path=local_configuration["active_model_path"],
+            effective_model_path=local_configuration["effective_model_path"],
+            loaded_model_path=local_configuration["loaded_model_path"],
         )
 
     def generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> str | None:

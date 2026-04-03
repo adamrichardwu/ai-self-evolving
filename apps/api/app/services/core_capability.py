@@ -12,11 +12,13 @@ from apps.api.app.schemas.core_capability import (
     CoreCapabilityEvaluationResponse,
     CoreCapabilityDatasetResponse,
     CoreCapabilityDatasetSummaryResponse,
+    CoreCapabilityPromotionResponse,
     CoreCapabilityTrainingJobResponse,
     CoreCapabilityTrainingEvaluationResponse,
     CoreCapabilityTrainingManifestResponse,
     CoreCapabilityPreferenceExampleResponse,
     CoreCapabilitySFTExampleResponse,
+    CreateCoreCapabilityPromotionRequest,
     CreateCoreCapabilityEvaluationRequest,
     CreateCoreCapabilityDatasetRequest,
     CreateCoreCapabilityExportRequest,
@@ -25,6 +27,7 @@ from apps.api.app.schemas.core_capability import (
 )
 from apps.api.app.core.settings import settings
 from apps.api.app.services.evolution import _build_candidate_policy, _record_to_snapshot, get_active_evolution_policy
+from apps.api.app.services.local_llm import LocalTransformersLLM
 from packages.consciousness.evaluation.runner import evaluate_self_model_snapshot
 from packages.consciousness.language.persistence import LanguageMessageRecord
 from packages.consciousness.runtime.persistence import RuntimeTraceRecord
@@ -117,6 +120,18 @@ def _render_case_response(case: EvolutionBenchmarkCase, record: SelfModelRecord,
     return f"Respond to {case.prompt} while preserving coherent agent behavior."
 
 
+def _build_benchmark_teacher_policy(case: EvolutionBenchmarkCase, policy: dict) -> dict:
+    teacher_policy = dict(policy)
+    for key in case.expected_policy_keys:
+        if key == "reasoning_caution_strength":
+            teacher_policy[key] = teacher_policy.get(key) or "high"
+        elif key == "identity_critic_mode":
+            teacher_policy[key] = teacher_policy.get(key) or "strict"
+        else:
+            teacher_policy[key] = True
+    return teacher_policy
+
+
 def _build_runtime_sft_examples(traces: list[RuntimeTraceRecord], chosen_name: str) -> list[CoreCapabilitySFTExampleResponse]:
     examples: list[CoreCapabilitySFTExampleResponse] = []
     for trace in traces:
@@ -202,7 +217,7 @@ def _build_training_manifest(
     sft_path: Path,
     preference_path: Path,
 ) -> CoreCapabilityTrainingManifestResponse:
-    base_model = settings.local_model_path or settings.llm_model or "unknown"
+    base_model = LocalTransformersLLM().configured_path() or settings.llm_model or "unknown"
     return CoreCapabilityTrainingManifestResponse(
         schema_version="core-capability-export/v2",
         base_model=base_model,
@@ -411,6 +426,7 @@ def prepare_core_capability_training_job(
         "manifest_path": str(manifest_path),
         "base_model": base_model,
         "mode": request.mode,
+        "recommended_pipeline_command": f'python -m train.pipeline --job-spec "{job_spec_path}" --run-label {job_label or "pipeline"}',
         "stages": stages,
         "safety_gates": {
             "require_pretraining_export_evaluation": True,
@@ -484,6 +500,55 @@ def evaluate_core_capability_training_run(
     return CoreCapabilityTrainingEvaluationResponse(**payload)
 
 
+def promote_core_capability_training_candidate(
+    request: CreateCoreCapabilityPromotionRequest,
+) -> CoreCapabilityPromotionResponse:
+    evaluation_path = Path(request.evaluation_path).resolve()
+    evaluation = json.loads(evaluation_path.read_text(encoding="utf-8"))
+    verdict = str(evaluation.get("verdict", "needs_review"))
+    candidate_model_path = str(evaluation.get("candidate_model_path", ""))
+    baseline_model_path = str(evaluation.get("baseline_model_path", settings.local_model_path or ""))
+
+    activation_manifest_path = Path(settings.active_local_model_manifest_path).resolve()
+    activation_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if verdict != "promote_candidate":
+        return CoreCapabilityPromotionResponse(
+            status="blocked",
+            verdict=verdict,
+            evaluation_path=str(evaluation_path),
+            activation_manifest_path=str(activation_manifest_path),
+            active_model_path=baseline_model_path,
+            previous_model_path=baseline_model_path,
+        )
+
+    previous_model_path = settings.local_model_path or ""
+    if activation_manifest_path.exists():
+        try:
+            previous_payload = json.loads(activation_manifest_path.read_text(encoding="utf-8"))
+            previous_model_path = previous_payload.get("active_model_path", previous_model_path)
+        except Exception:
+            pass
+
+    payload = {
+        "status": "active",
+        "promotion_label": _slugify_label(request.promotion_label or Path(candidate_model_path).name),
+        "evaluation_path": str(evaluation_path),
+        "active_model_path": candidate_model_path,
+        "previous_model_path": previous_model_path,
+        "promoted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    activation_manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return CoreCapabilityPromotionResponse(
+        status="promoted",
+        verdict=verdict,
+        evaluation_path=str(evaluation_path),
+        activation_manifest_path=str(activation_manifest_path),
+        active_model_path=candidate_model_path,
+        previous_model_path=previous_model_path,
+    )
+
+
 def build_core_capability_dataset(
     db: Session,
     agent_id: str,
@@ -521,24 +586,25 @@ def build_core_capability_dataset(
     if request.include_benchmark_examples:
         baseline_policy: dict = {}
         for case in get_evolution_benchmark_cases():
-            chosen_response = _render_case_response(case, record, training_policy)
+            chosen_response = _render_case_response(case, record, _build_benchmark_teacher_policy(case, training_policy))
             rejected_response = _render_case_response(case, record, baseline_policy)
             target_capabilities.add(case.target_capability)
-            preference_examples.append(
-                CoreCapabilityPreferenceExampleResponse(
-                    prompt=case.prompt,
-                    chosen_response=chosen_response,
-                    rejected_response=rejected_response,
-                    source="benchmark_preference",
-                    target_capability=case.target_capability,
-                    metadata={
-                        "case_name": case.name,
-                        "policy_source": policy_source,
-                        "expected_policy_keys": case.expected_policy_keys,
-                        "rationale": case.rationale,
-                    },
+            if chosen_response != rejected_response:
+                preference_examples.append(
+                    CoreCapabilityPreferenceExampleResponse(
+                        prompt=case.prompt,
+                        chosen_response=chosen_response,
+                        rejected_response=rejected_response,
+                        source="benchmark_preference",
+                        target_capability=case.target_capability,
+                        metadata={
+                            "case_name": case.name,
+                            "policy_source": policy_source,
+                            "expected_policy_keys": case.expected_policy_keys,
+                            "rationale": case.rationale,
+                        },
+                    )
                 )
-            )
             sft_examples.append(
                 CoreCapabilitySFTExampleResponse(
                     prompt=case.prompt,

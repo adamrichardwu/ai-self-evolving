@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,10 +22,16 @@ from apps.api.app.runtime.language_loop import LanguageBackgroundLoop
 from packages.infra.db.session import init_db
 
 
+def _should_start_language_background_loop() -> bool:
+    if not settings.language_background_loop_enabled:
+        return False
+    return "PYTEST_CURRENT_TEST" not in os.environ
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     loop = None
-    if settings.language_background_loop_enabled:
+    if _should_start_language_background_loop():
         loop = LanguageBackgroundLoop(settings.language_thought_interval_seconds)
         loop.start()
         app.state.language_background_loop = loop

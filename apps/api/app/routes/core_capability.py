@@ -7,10 +7,13 @@ from apps.api.app.schemas.core_capability import (
     CoreCapabilityEvaluationResponse,
     CoreCapabilityExportJobResponse,
     CoreCapabilityExportResponse,
+    CoreCapabilityPromotionQueueResponse,
+    CoreCapabilityPromotionResponse,
     CoreCapabilityTrainingJobQueueResponse,
     CoreCapabilityTrainingJobResponse,
     CoreCapabilityTrainingEvaluationQueueResponse,
     CoreCapabilityTrainingEvaluationResponse,
+    CreateCoreCapabilityPromotionRequest,
     CreateCoreCapabilityEvaluationRequest,
     CreateCoreCapabilityDatasetRequest,
     CreateCoreCapabilityExportRequest,
@@ -22,6 +25,7 @@ from apps.api.app.services.core_capability import (
     evaluate_core_capability_export,
     evaluate_core_capability_training_run,
     export_core_capability_dataset_bundle,
+    promote_core_capability_training_candidate,
     prepare_core_capability_training_job,
 )
 from apps.worker.app.celery_app import celery_app
@@ -170,4 +174,34 @@ def queue_core_capability_training_run_endpoint(
             task_id=result.evaluation_path,
             task_name="core_capability.evaluate_training_run",
             status="completed_inline",
+        )
+
+
+@router.post("/training-promotions", response_model=CoreCapabilityPromotionResponse)
+def promote_core_capability_training_candidate_endpoint(
+    payload: CreateCoreCapabilityPromotionRequest,
+) -> CoreCapabilityPromotionResponse:
+    return promote_core_capability_training_candidate(payload)
+
+
+@router.post("/training-promotions/queue", response_model=CoreCapabilityPromotionQueueResponse)
+def queue_core_capability_training_candidate_endpoint(
+    payload: CreateCoreCapabilityPromotionRequest,
+) -> CoreCapabilityPromotionQueueResponse:
+    try:
+        task_result = celery_app.send_task(
+            "core_capability.promote_training_candidate",
+            args=[payload.model_dump()],
+        )
+        return CoreCapabilityPromotionQueueResponse(
+            task_id=task_result.id,
+            task_name="core_capability.promote_training_candidate",
+            status="queued",
+        )
+    except Exception:
+        result = promote_core_capability_training_candidate(payload)
+        return CoreCapabilityPromotionQueueResponse(
+            task_id=result.activation_manifest_path,
+            task_name="core_capability.promote_training_candidate",
+            status=result.status,
         )

@@ -225,6 +225,7 @@ def test_llm_status_reports_unconfigured_mode() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["mode"] in ["template-fallback", "local-llm"]
+    assert "effective_model_path" in body
 
 
 def test_llm_status_reports_reachable_local_endpoint(monkeypatch) -> None:
@@ -263,12 +264,50 @@ def test_llm_status_reports_reachable_local_endpoint(monkeypatch) -> None:
 def test_llm_status_prefers_local_transformers_model(monkeypatch) -> None:
     client = TestClient(app)
     monkeypatch.setattr(settings, "local_model_path", "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct")
+    monkeypatch.setattr(
+        llm_service.local_llm,
+        "describe_configuration",
+        lambda: {
+            "default_model_path": "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct",
+            "active_model_manifest_path": "C:/tmp/active_local_model.json",
+            "active_model_manifest_present": False,
+            "active_model_path": None,
+            "effective_model_path": "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct",
+            "loaded_model_path": None,
+        },
+    )
     monkeypatch.setattr(llm_service.local_llm, "status", lambda: (True, "Local model is configured and will load on first request."))
     response = client.get("/api/v1/language/llm/status")
     assert response.status_code == 200
     body = response.json()
     assert body["mode"] == "local-transformers"
     assert body["reachable"] is True
+    assert body["effective_model_path"] == "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct"
+
+
+def test_llm_status_reports_active_promoted_model(monkeypatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(
+        llm_service.local_llm,
+        "describe_configuration",
+        lambda: {
+            "default_model_path": "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct",
+            "active_model_manifest_path": "C:/tmp/active_local_model.json",
+            "active_model_manifest_present": True,
+            "active_model_path": "C:/models/candidate-model",
+            "effective_model_path": "C:/models/candidate-model",
+            "loaded_model_path": "C:/models/candidate-model",
+        },
+    )
+    monkeypatch.setattr(llm_service.local_llm, "status", lambda: (True, "Local model is loaded and ready."))
+
+    response = client.get("/api/v1/language/llm/status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "local-transformers"
+    assert body["active_model_manifest_present"] is True
+    assert body["active_model_path"] == "C:/models/candidate-model"
+    assert body["loaded_model_path"] == "C:/models/candidate-model"
 
 
 def test_language_engine_response_prompt_prefers_chinese_for_chinese_input() -> None:

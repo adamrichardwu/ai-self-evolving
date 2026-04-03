@@ -130,9 +130,17 @@ body {
 
 .identity-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.05fr 1.15fr;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 22px;
   margin-bottom: 22px;
+}
+
+.identity-grid-models {
+  margin-bottom: 22px;
+}
+
+.panel-model-status .identity-list dd {
+  word-break: break-word;
 }
 
 .panel {

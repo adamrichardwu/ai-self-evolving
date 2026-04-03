@@ -122,6 +122,10 @@ def test_core_capability_dataset_falls_back_to_recommended_policy_without_active
     assert body["policy_source"] == "recommended"
     assert body["summary"]["preference_example_count"] >= 4
     assert body["summary"]["sft_example_count"] >= 4
+    assert all(item["chosen_response"] != item["rejected_response"] for item in body["preference_examples"])
+    limitation_rows = [item for item in body["preference_examples"] if item["target_capability"] == "limitation_awareness"]
+    assert limitation_rows
+    assert "My clearest current limitation is" in limitation_rows[0]["chosen_response"]
 
 
 def test_core_capability_export_run_writes_jsonl_bundle(tmp_path, monkeypatch) -> None:
@@ -175,6 +179,60 @@ def test_core_capability_export_run_writes_jsonl_bundle(tmp_path, monkeypatch) -
     preference_lines = Path(body["preference_dataset_path"]).read_text(encoding="utf-8").strip().splitlines()
     assert len(sft_lines) >= 4
     assert len(preference_lines) >= 4
+
+
+def test_core_capability_export_run_uses_active_model_as_training_base(tmp_path, monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-core-capability-export-base-{uuid4()}"
+    active_model_dir = tmp_path / "promoted-model"
+    active_model_dir.mkdir(parents=True)
+    active_manifest_path = tmp_path / "control" / "active_local_model.json"
+    active_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    active_manifest_path.write_text(
+        json.dumps(
+            {
+                "status": "active",
+                "active_model_path": str(active_model_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "core_capability_export_dir", str(tmp_path / "exports"))
+    monkeypatch.setattr(settings, "active_local_model_manifest_path", str(active_manifest_path))
+
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Export base model seed",
+                    "core_commitments": ["truthfulness", "continuity"]
+                },
+                "capability": {"known_limitations": ["small local model"]},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "export promoted base model", "dominant_goal": "continue improving from latest candidate"},
+                "metacognition": {"error_risk_score": 0.5},
+                "social": {"active_relationships": ["Primary User"]},
+                "autobiography": {"long_term_narrative": "I am Astra, distinct from the user."}
+            },
+            "update_reason": "export_base_model_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    export_response = client.post(
+        f"/api/v1/core-capability/{agent_id}/export/run",
+        json={"objective": "write offline training bundle", "export_label": "active-base"},
+    )
+    assert export_response.status_code == 200
+    body = export_response.json()
+    assert body["training_manifest"]["base_model"] == str(active_model_dir)
 
 
 def test_core_capability_export_evaluation_scores_bundle(tmp_path, monkeypatch) -> None:
@@ -288,6 +346,7 @@ def test_core_capability_training_job_preparation_writes_job_spec(tmp_path, monk
     assert job_spec["schema_version"] == "core-capability-training-job/v1"
     assert len(job_spec["stages"]) >= 1
     assert "python -m train.sft" in job_spec["stages"][0]["recommended_command"]
+    assert "python -m train.pipeline" in job_spec["recommended_pipeline_command"]
 
 
 def test_local_training_entrypoints_prepare_run_directories(tmp_path, monkeypatch) -> None:
@@ -362,6 +421,20 @@ def test_local_training_entrypoints_prepare_run_directories(tmp_path, monkeypatc
     assert sft_manifest["status"] == "dry_run_prepared"
     assert preference_manifest["status"] == "dry_run_prepared"
 
+    pipeline_result = subprocess.run(
+        [sys.executable, "-m", "train.pipeline", "--job-spec", job_body["job_spec_path"], "--run-label", "test-pipeline", "--dry-run"],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert pipeline_result.returncode == 0, pipeline_result.stderr
+
+    pipeline_manifest = json.loads(pipeline_result.stdout)
+    assert Path(pipeline_manifest["pipeline_manifest_path"]).exists()
+    assert len(pipeline_manifest["stage_results"]) == 2
+    assert pipeline_manifest["stage_results"][1]["base_model_path"].endswith("test-pipeline-sft\\model")
+
 
 def test_core_capability_training_evaluation_dry_run_writes_report(tmp_path, monkeypatch) -> None:
     client = TestClient(app)
@@ -425,3 +498,72 @@ def test_core_capability_training_evaluation_dry_run_writes_report(tmp_path, mon
     assert body["status"] == "completed"
     assert body["verdict"] == "dry_run"
     assert Path(body["evaluation_path"]).exists()
+
+
+def test_core_capability_training_promotion_blocks_when_verdict_is_not_promote(tmp_path, monkeypatch) -> None:
+    client = TestClient(app)
+    manifest_path = tmp_path / "training_evaluation.json"
+    active_manifest_path = tmp_path / "control" / "active_local_model.json"
+    monkeypatch.setattr(settings, "active_local_model_manifest_path", str(active_manifest_path))
+
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "evaluation_path": str(manifest_path),
+                "baseline_model_path": "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct",
+                "candidate_model_path": str(tmp_path / "candidate-model"),
+                "verdict": "needs_review",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/v1/core-capability/training-promotions",
+        json={"evaluation_path": str(manifest_path)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "blocked"
+    assert body["verdict"] == "needs_review"
+    assert not active_manifest_path.exists()
+
+
+def test_core_capability_training_promotion_activates_candidate_model(tmp_path, monkeypatch) -> None:
+    client = TestClient(app)
+    candidate_model_dir = tmp_path / "candidate-model"
+    candidate_model_dir.mkdir(parents=True)
+    evaluation_path = tmp_path / "training_evaluation.json"
+    active_manifest_path = tmp_path / "control" / "active_local_model.json"
+    monkeypatch.setattr(settings, "active_local_model_manifest_path", str(active_manifest_path))
+
+    evaluation_path.write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "evaluation_path": str(evaluation_path),
+                "baseline_model_path": "modelscope_cache/Qwen/Qwen2___5-0___5B-Instruct",
+                "candidate_model_path": str(candidate_model_dir),
+                "verdict": "promote_candidate",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/v1/core-capability/training-promotions",
+        json={"evaluation_path": str(evaluation_path), "promotion_label": "nightly-win"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "promoted"
+    assert body["verdict"] == "promote_candidate"
+    assert Path(body["activation_manifest_path"]).exists()
+
+    activation_payload = json.loads(Path(body["activation_manifest_path"]).read_text(encoding="utf-8"))
+    assert activation_payload["active_model_path"] == str(candidate_model_dir)

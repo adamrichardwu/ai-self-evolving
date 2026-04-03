@@ -24,3 +24,6 @@ local.db
 local.db-*
 modelscope_cache/
 artifacts/
+control/*.json
+control/*.pid
+control/*.log

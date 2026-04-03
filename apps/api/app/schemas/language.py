@@ -47,6 +47,12 @@ class LLMStatusResponse(BaseModel):
     api_base_url: str | None = None
     model: str | None = None
     detail: str = ""
+    default_model_path: str | None = None
+    active_model_manifest_path: str | None = None
+    active_model_manifest_present: bool = False
+    active_model_path: str | None = None
+    effective_model_path: str | None = None
+    loaded_model_path: str | None = None
 
 
 class LanguageExchangeResponse(BaseModel):

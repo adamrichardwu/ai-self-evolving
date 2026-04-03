@@ -4,6 +4,13 @@ const goalLabel = document.getElementById("goal-label");
 const loopLabel = document.getElementById("loop-label");
 const summaryText = document.getElementById("summary-text");
 const statusChip = document.getElementById("status-chip");
+const llmModeChip = document.getElementById("llm-mode-chip");
+const llmEffectiveModel = document.getElementById("llm-effective-model");
+const llmLoadedModel = document.getElementById("llm-loaded-model");
+const llmActiveModel = document.getElementById("llm-active-model");
+const llmDefaultModel = document.getElementById("llm-default-model");
+const llmManifestStatus = document.getElementById("llm-manifest-status");
+const llmDetail = document.getElementById("llm-detail");
 const identityName = document.getElementById("identity-name");
 const identityOrigin = document.getElementById("identity-origin");
 const identityCommitments = document.getElementById("identity-commitments");
@@ -232,6 +239,29 @@ function renderEvolution(runs) {
     : "No mutation proposals yet.";
 }
 
+function renderLlmStatus(llmStatus) {
+  if (!llmStatus) {
+    llmModeChip.textContent = "unknown";
+    llmEffectiveModel.textContent = "Unknown";
+    llmLoadedModel.textContent = "Not loaded";
+    llmActiveModel.textContent = "None";
+    llmDefaultModel.textContent = "Unknown";
+    llmManifestStatus.textContent = "Unknown";
+    llmDetail.textContent = "Status unavailable.";
+    return;
+  }
+
+  llmModeChip.textContent = llmStatus.mode || "unknown";
+  llmEffectiveModel.textContent = llmStatus.effective_model_path || llmStatus.model || "Unknown";
+  llmLoadedModel.textContent = llmStatus.loaded_model_path || "Not loaded yet";
+  llmActiveModel.textContent = llmStatus.active_model_path || "None";
+  llmDefaultModel.textContent = llmStatus.default_model_path || "Unknown";
+  llmManifestStatus.textContent = llmStatus.active_model_manifest_present
+    ? llmStatus.active_model_manifest_path || "present"
+    : "No active promotion manifest";
+  llmDetail.textContent = llmStatus.detail || "No detail available.";
+}
+
 async function ensureAgent(agentId) {
   const response = await fetch("/api/v1/self-models", {
     method: "POST",
@@ -250,12 +280,13 @@ async function syncState() {
   counterpartRole.textContent = counterpartRoleInput.value.trim() || "operator";
 
   try {
-    const [languageResponse, runtimeResponse, selfModelResponse, relationshipResponse, evolutionResponse] = await Promise.all([
+    const [languageResponse, runtimeResponse, selfModelResponse, relationshipResponse, evolutionResponse, llmStatusResponse] = await Promise.all([
       fetch(`/api/v1/language/${encodeURIComponent(agentId)}/state`),
       fetch(`/api/v1/runtime/${encodeURIComponent(agentId)}/state`),
       fetch(`/api/v1/self-models/${encodeURIComponent(agentId)}`),
       fetch(`/api/v1/social-memory/${encodeURIComponent(agentId)}/relationships/user-primary`),
       fetch(`/api/v1/self-evolution/${encodeURIComponent(agentId)}`),
+      fetch("/api/v1/language/llm/status"),
     ]);
 
     if (languageResponse.status === 404 || runtimeResponse.status === 404 || selfModelResponse.status === 404) {
@@ -274,6 +305,7 @@ async function syncState() {
     const selfModel = await selfModelResponse.json();
     const relationship = relationshipResponse.ok ? await relationshipResponse.json() : null;
     const evolutionRuns = evolutionResponse.ok ? await evolutionResponse.json() : [];
+    const llmStatus = llmStatusResponse.ok ? await llmStatusResponse.json() : null;
     const identityContext = runtime.identity_context || {};
 
     renderMessages(state.messages || []);
@@ -281,6 +313,7 @@ async function syncState() {
     renderGoals(runtime.active_goals || []);
     renderTraces(runtime.recent_traces || []);
     renderEvolution(evolutionRuns || []);
+    renderLlmStatus(llmStatus);
     loopLabel.textContent = state.background_loop_enabled ? "active" : "idle";
     summaryText.textContent = runtime.summary_text || state.summary?.summary_text || "No compressed memory yet.";
     focusLabel.textContent = runtime.current_focus || selfModel.snapshot.attention.current_focus || "awaiting interaction";
@@ -301,6 +334,7 @@ async function syncState() {
     statusChip.textContent = "API unavailable";
     renderTraces([]);
     renderEvolution([]);
+    renderLlmStatus(null);
     errorText.textContent = error instanceof Error ? error.message : "Unknown error.";
   }
 }

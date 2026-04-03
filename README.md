@@ -69,6 +69,22 @@ pip install -e .[dev]
 uvicorn apps.api.app.main:app --reload
 ```
 
+Windows 下更稳妥的方式是直接用仓库脚本管理 API 进程，避免终端退出后留下残留 Python 进程：
+
+```powershell
+.\scripts\api_server.ps1 start
+.\scripts\api_server.ps1 status
+.\scripts\api_server.ps1 stop
+```
+
+如果你要前台直接看日志，也可以用：
+
+```powershell
+.\scripts\api_server.ps1 foreground
+```
+
+脚本会把 PID 和日志写到 `control/` 目录下。
+
 ### 3. 启动 Worker
 
 ```powershell
@@ -89,10 +105,13 @@ python -m celery -A apps.worker.app.celery_app:celery_app worker --pool solo --l
 ```powershell
 python -m train.sft --job-spec <training_job.json> --run-name sft-local
 python -m train.preference --job-spec <training_job.json> --run-name preference-local
+python -m train.pipeline --job-spec <training_job.json> --run-label nightly
 python -m train.evaluate --run-manifest <run_manifest.json> --max-examples 8
 ```
 
-这三个入口当前支持本地训练和训练后评测：`train.sft`、`train.preference` 会执行真实训练；`train.evaluate` 会把训练后模型和基础模型在同一批导出数据上做定量对比。
+这几个入口当前支持本地训练和训练后评测：`train.sft`、`train.preference` 会执行单阶段训练；`train.pipeline` 会按 job spec 顺序先跑 SFT，再把 preference 阶段接到 SFT 候选模型上；`train.evaluate` 会把训练后模型和基础模型在同一批导出数据上做定量对比。
+
+训练评测结果如果是 `promote_candidate`，现在还可以通过 `POST /api/v1/core-capability/training-promotions` 把候选模型提升为当前活动本地模型。活动模型会记录在 `control/active_local_model.json`，语言模块会优先加载这个路径。
 
 ### 4. 访问健康检查
 

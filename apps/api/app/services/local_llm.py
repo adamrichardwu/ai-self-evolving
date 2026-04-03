@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -15,14 +17,51 @@ class LocalTransformersLLM:
         self._loaded_path: str | None = None
 
     def configured_path(self) -> str | None:
-        return settings.local_model_path
+        return self.describe_configuration()["effective_model_path"]
+
+    def _read_active_manifest(self) -> tuple[Path, dict[str, Any] | None]:
+        manifest_path = Path(settings.active_local_model_manifest_path)
+        if not manifest_path.exists():
+            return manifest_path, None
+
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return manifest_path, None
+
+        if not isinstance(payload, dict):
+            return manifest_path, None
+        return manifest_path, payload
+
+    def describe_configuration(self) -> dict[str, Any]:
+        manifest_path, payload = self._read_active_manifest()
+        default_model_path = settings.local_model_path
+        active_model_path = None
+        if payload is not None:
+            active_model_path = payload.get("active_model_path") or None
+
+        effective_model_path = default_model_path
+        if active_model_path and Path(active_model_path).exists():
+            effective_model_path = str(active_model_path)
+
+        loaded_model_path = self._loaded_path if self._model is not None and self._tokenizer is not None else None
+        return {
+            "default_model_path": default_model_path,
+            "active_model_manifest_path": str(manifest_path.resolve()),
+            "active_model_manifest_present": manifest_path.exists(),
+            "active_model_path": active_model_path,
+            "effective_model_path": effective_model_path,
+            "loaded_model_path": loaded_model_path,
+        }
 
     def is_configured(self) -> bool:
         path = self.configured_path()
         return bool(path and Path(path).exists())
 
     def status(self) -> tuple[bool, str]:
-        if not self.is_configured():
+        configuration = self.describe_configuration()
+        path = configuration["effective_model_path"]
+        if not path or not Path(path).exists():
             return False, "Local model path is not configured or does not exist."
         if self._model is None or self._tokenizer is None:
             return True, "Local model is configured and will load on first request."

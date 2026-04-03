@@ -26,6 +26,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Prepare a local SFT run from a core capability training job spec.")
     parser.add_argument("--job-spec", required=True)
     parser.add_argument("--run-name", default="sft-run")
+    parser.add_argument("--base-model", default="")
     parser.add_argument("--max-steps", type=int, default=12)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -38,14 +39,17 @@ def main() -> int:
     rows = load_jsonl(stage["dataset_path"])
     stats = validate_sft_rows(rows)
     run_dir = prepare_run_directory(stage["output_dir"], args.run_name)
+    base_model_path = args.base_model or stage.get("base_model") or job_spec["base_model"]
 
     if args.dry_run:
         run_manifest = {
             "status": "dry_run_prepared",
             "stage": "sft",
             "job_spec_path": str(Path(args.job_spec).resolve()),
+            "base_model_path": base_model_path,
             "dataset_path": stage["dataset_path"],
             "output_dir": str(run_dir),
+            "model_dir": str(run_dir / "model"),
             "format": stage["format"],
             "stats": stats,
             "max_steps": args.max_steps,
@@ -61,7 +65,7 @@ def main() -> int:
         print(json.dumps(run_manifest, ensure_ascii=False))
         return 0
 
-    tokenizer, model = load_tokenizer_and_model(job_spec["base_model"])
+    tokenizer, model = load_tokenizer_and_model(base_model_path)
     device = resolve_device()
     model.to(device)
     model.train()
@@ -86,6 +90,7 @@ def main() -> int:
         "status": "trained",
         "stage": "sft",
         "job_spec_path": str(Path(args.job_spec).resolve()),
+        "base_model_path": base_model_path,
         "dataset_path": stage["dataset_path"],
         "output_dir": str(run_dir),
         "model_dir": model_dir,

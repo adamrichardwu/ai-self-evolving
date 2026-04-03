@@ -99,6 +99,11 @@ class CreateCoreCapabilityTrainingEvaluationRequest(BaseModel):
     dry_run: bool = False
 
 
+class CreateCoreCapabilityPromotionRequest(BaseModel):
+    evaluation_path: str
+    promotion_label: str = ""
+
+
 class CoreCapabilityEvaluationResponse(BaseModel):
     status: str
     verdict: str
@@ -148,6 +153,21 @@ class CoreCapabilityTrainingEvaluationResponse(BaseModel):
 
 
 class CoreCapabilityTrainingEvaluationQueueResponse(BaseModel):
+    task_id: str
+    task_name: str
+    status: str
+
+
+class CoreCapabilityPromotionResponse(BaseModel):
+    status: str
+    verdict: str
+    evaluation_path: str
+    activation_manifest_path: str
+    active_model_path: str
+    previous_model_path: str = ""
+
+
+class CoreCapabilityPromotionQueueResponse(BaseModel):
     task_id: str
     task_name: str
     status: str

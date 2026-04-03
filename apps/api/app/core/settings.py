@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     celery_result_backend: str | None = None
     celery_local_data_dir: str = ".celery"
     core_capability_export_dir: str = "artifacts/core_capability"
+    active_local_model_manifest_path: str = "control/active_local_model.json"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
