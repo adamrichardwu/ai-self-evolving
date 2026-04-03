@@ -107,3 +107,37 @@ def test_goal_checkpoint_updates_goal_status() -> None:
     completed_goal = next(goal for goal in goals if goal["id"] == goal_id)
     assert completed_goal["status"] == "completed"
     assert completed_goal["progress_score"] == 1.0
+
+
+def test_refresh_goals_normalizes_cjk_focus_spacing() -> None:
+    client = TestClient(app)
+    agent_id = f"agent-goals-cjk-spacing-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Goals spacing seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "请直接 说明你是谁，以及我 是谁。"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "goals_spacing_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    refresh_response = client.post(f"/api/v1/goals/{agent_id}/refresh")
+    assert refresh_response.status_code == 201
+    body = refresh_response.json()
+
+    assert body["dominant_goal"] == "请直接说明你是谁，以及我是谁。"
+    assert body["goals"][0]["title"] == "请直接说明你是谁，以及我是谁。"

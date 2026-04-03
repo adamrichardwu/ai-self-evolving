@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -41,6 +43,119 @@ def _contains_cjk(text: str) -> bool:
 def _matches_any(text: str, phrases: list[str]) -> bool:
     lowered = text.lower()
     return any(phrase in lowered for phrase in phrases)
+
+
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _normalize_mixed_spacing(text: str) -> str:
+    normalized = _normalize_whitespace(text)
+    if not normalized:
+        return ""
+    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", normalized)
+    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：,.!?;:])", "", normalized)
+    normalized = re.sub(r"(?<=[，。！？；：,.!?;:])\s+(?=[\u4e00-\u9fff])", "", normalized)
+    return normalized
+
+
+def _normalize_repeat_key(text: str) -> str:
+    return "".join(character.casefold() for character in _normalize_mixed_spacing(text) if character.isalnum())
+
+
+def _split_text_units(text: str) -> list[str]:
+    normalized = _normalize_mixed_spacing(text)
+    if not normalized:
+        return []
+    units = [
+        unit.strip()
+        for unit in re.findall(r"[^。！？.!?;；\n]+(?:[。！？.!?;；]+)?", normalized)
+        if unit.strip()
+    ]
+    return units or [normalized]
+
+
+def _dedupe_text_units(units: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for unit in units:
+        key = _normalize_repeat_key(unit)
+        if not key:
+            continue
+        if deduped and key == _normalize_repeat_key(deduped[-1]):
+            continue
+        if key in seen and len(units) > 1:
+            continue
+        deduped.append(unit)
+        seen.add(key)
+    return deduped
+
+
+def _join_text_units(units: list[str]) -> str:
+    cleaned_units = [unit.strip() for unit in units if unit.strip()]
+    if not cleaned_units:
+        return ""
+    if any(_contains_cjk(unit) for unit in cleaned_units):
+        return "".join(cleaned_units)
+    return " ".join(cleaned_units)
+
+
+def _truncate_text(text: str, max_length: int) -> str:
+    normalized = _normalize_mixed_spacing(text)
+    if len(normalized) <= max_length:
+        return normalized
+    truncated = normalized[: max_length - 3].rstrip(" ,，;；")
+    return f"{truncated}..."
+
+
+def _limit_text_units(units: list[str], max_length: int) -> str:
+    limited: list[str] = []
+    for unit in units:
+        candidate = _join_text_units([*limited, unit])
+        if limited and len(candidate) > max_length:
+            break
+        limited.append(unit)
+        if len(candidate) >= max_length:
+            break
+    return _join_text_units(limited)
+
+
+def _limit_thought_sentences(units: list[str], max_sentences: int, max_length: int) -> str:
+    limited = units[:max_sentences]
+    while limited:
+        joined = _join_text_units(limited)
+        if len(joined) <= max_length:
+            return joined
+        limited = limited[:-1]
+    return ""
+
+
+def _sanitize_focus_text(text: str, fallback: str) -> str:
+    units = _dedupe_text_units(_split_text_units(text))
+    focus = units[0] if units else _normalize_mixed_spacing(fallback)
+    focus = _truncate_text(focus, 120).strip(" .,!?:;，。！？；：")
+    if focus:
+        return focus
+    fallback_focus = _truncate_text(_normalize_mixed_spacing(fallback), 120).strip(" .,!?:;，。！？；：")
+    return fallback_focus or "maintain coherent interaction"
+
+
+def _sanitize_thought_text(text: str, fallback_text: str, previous_text: str = "") -> str:
+    units = _dedupe_text_units(_split_text_units(text))
+    cleaned = _limit_thought_sentences(units, max_sentences=3, max_length=280)
+    if not cleaned:
+        cleaned = _limit_text_units(units, 280) or _truncate_text(_join_text_units(units), 280)
+    previous_key = _normalize_repeat_key(previous_text)
+    if cleaned and previous_key and _normalize_repeat_key(cleaned) == previous_key:
+        cleaned = ""
+    if cleaned:
+        return cleaned
+
+    fallback_units = _dedupe_text_units(_split_text_units(fallback_text))
+    fallback = _limit_thought_sentences(fallback_units, max_sentences=3, max_length=280)
+    if not fallback:
+        fallback = _limit_text_units(fallback_units, 280) or _truncate_text(_join_text_units(fallback_units), 280)
+    return fallback or _truncate_text(_normalize_mixed_spacing(fallback_text), 280)
 
 
 def _is_identity_question(user_text: str) -> bool:
@@ -346,7 +461,7 @@ def _to_thought_response(record: InnerThoughtRecord) -> InnerThoughtResponse:
         id=record.id,
         self_model_id=record.self_model_id,
         thought_type=record.thought_type,
-        focus=record.focus,
+        focus=_sanitize_focus_text(record.focus, "maintain coherent interaction"),
         content=record.content,
         salience_score=record.salience_score,
         source=record.source,
@@ -383,7 +498,7 @@ def derive_identity_status(
 
 def _active_goals_snapshot(db: Session, agent_id: str) -> tuple[str, list[GoalResponse]]:
     active_goals = list_goals(db, agent_id, active_only=True) or []
-    dominant_goal = active_goals[0].title if active_goals else ""
+    dominant_goal = _normalize_mixed_spacing(active_goals[0].title) if active_goals else ""
     return dominant_goal, active_goals
 
 
@@ -557,7 +672,7 @@ def _persist_thought(
     record = InnerThoughtRecord(
         self_model_id=self_model_id,
         thought_type=thought_type,
-        focus=focus,
+        focus=_sanitize_focus_text(focus, "maintain coherent interaction"),
         content=content,
         salience_score=salience_score,
         source=source,
@@ -592,6 +707,11 @@ def run_language_thought_cycle(
         "User",
         "user",
     )
+    effective_focus = _sanitize_focus_text(
+        workspace.dominant_focus or self_model.snapshot.attention.current_focus,
+        self_model.snapshot.identity.chosen_name,
+    )
+    previous_thought = _latest_thought(db, record.id)
 
     engine = LanguageEngine()
     llm_thought = llm.generate(
@@ -602,7 +722,7 @@ def run_language_thought_cycle(
         ),
         user_prompt=engine.background_user_prompt(
             chosen_name=self_model.snapshot.identity.chosen_name,
-            dominant_focus=workspace.dominant_focus,
+            dominant_focus=effective_focus,
             latest_user_message=latest_user_message.content if latest_user_message is not None else "",
             obligations=self_model.snapshot.social.social_obligations,
             counterpart_name=counterpart_name,
@@ -612,18 +732,22 @@ def run_language_thought_cycle(
         ),
         temperature=0.6,
     )
-    thought_content = engine.compose_background_thought(
+    fallback_thought = engine.compose_background_thought(
         chosen_name=self_model.snapshot.identity.chosen_name,
-        dominant_focus=workspace.dominant_focus,
+        dominant_focus=effective_focus,
         latest_user_message=latest_user_message.content if latest_user_message is not None else "",
         obligations=self_model.snapshot.social.social_obligations,
-        llm_output=llm_thought,
+    )
+    thought_content = _sanitize_thought_text(
+        text=llm_thought,
+        fallback_text=fallback_thought,
+        previous_text=previous_thought.content if previous_thought is not None else "",
     )
     thought = _persist_thought(
         db=db,
         self_model_id=record.id,
         thought_type=thought_type,
-        focus=workspace.dominant_focus or self_model.snapshot.identity.chosen_name,
+        focus=effective_focus,
         content=thought_content,
         salience_score=workspace.cycle_confidence,
         source=source,
@@ -722,6 +846,10 @@ def send_language_message(
             obligations=refreshed_self_model.snapshot.social.social_obligations,
         )
     )
+    effective_focus = _sanitize_focus_text(
+        workspace.dominant_focus or current_focus,
+        refreshed_self_model.snapshot.identity.chosen_name,
+    )
 
     language_engine = LanguageEngine()
     llm_reaction_thought = llm.generate(
@@ -732,7 +860,7 @@ def send_language_message(
         ),
         user_prompt=language_engine.background_user_prompt(
             chosen_name=refreshed_self_model.snapshot.identity.chosen_name,
-            dominant_focus=workspace.dominant_focus or current_focus,
+            dominant_focus=effective_focus,
             latest_user_message=request.text.strip(),
             obligations=refreshed_self_model.snapshot.social.social_obligations,
             counterpart_name=counterpart_name,
@@ -742,18 +870,22 @@ def send_language_message(
         ),
         temperature=0.6,
     )
-    reaction_thought = language_engine.compose_background_thought(
+    fallback_reaction_thought = language_engine.compose_background_thought(
         chosen_name=refreshed_self_model.snapshot.identity.chosen_name,
-        dominant_focus=workspace.dominant_focus or current_focus,
+        dominant_focus=effective_focus,
         latest_user_message=request.text.strip(),
         obligations=refreshed_self_model.snapshot.social.social_obligations,
-        llm_output=llm_reaction_thought,
+    )
+    reaction_thought = _sanitize_thought_text(
+        text=llm_reaction_thought,
+        fallback_text=fallback_reaction_thought,
+        previous_text=latest_thought_text,
     )
     thought_record = _persist_thought(
         db=db,
         self_model_id=record.id,
         thought_type="reaction_cycle",
-        focus=workspace.dominant_focus or current_focus,
+        focus=effective_focus,
         content=reaction_thought,
         salience_score=workspace.cycle_confidence,
         source="user_input",
@@ -770,7 +902,7 @@ def send_language_message(
         relationship_type=relationship_type,
         identity_status=identity_status,
         dominant_goal=dominant_goal_snapshot,
-        current_focus=workspace.dominant_focus or current_focus,
+        current_focus=effective_focus,
         known_limitations=refreshed_self_model.snapshot.capability.known_limitations,
         origin_story=refreshed_self_model.snapshot.identity.origin_story,
         core_commitments=refreshed_self_model.snapshot.identity.core_commitments,
@@ -786,7 +918,7 @@ def send_language_message(
         ),
         user_prompt=language_engine.response_user_prompt(
             user_text=request.text.strip(),
-            dominant_focus=workspace.dominant_focus or current_focus,
+            dominant_focus=effective_focus,
             latest_thought=reaction_thought,
             reflection_triggered=reflection.triggered,
             counterpart_name=counterpart_name,
@@ -800,7 +932,7 @@ def send_language_message(
     )
     assistant_text = structured_response or language_engine.compose_response(
         user_text=request.text.strip(),
-        dominant_focus=workspace.dominant_focus or current_focus,
+        dominant_focus=effective_focus,
         latest_thought=reaction_thought,
         reflection_triggered=reflection.triggered,
         llm_output=llm_response,
@@ -814,7 +946,7 @@ def send_language_message(
         relationship_type=relationship_type,
         identity_status=identity_status,
         dominant_goal=dominant_goal_snapshot,
-        current_focus=workspace.dominant_focus or current_focus,
+        current_focus=effective_focus,
         known_limitations=refreshed_self_model.snapshot.capability.known_limitations,
     )
     assistant_message = _persist_message(db, record.id, role="assistant", content=assistant_text)
@@ -822,7 +954,7 @@ def send_language_message(
         db=db,
         self_model_id=record.id,
         chosen_name=refreshed_self_model.snapshot.identity.chosen_name,
-        focus=workspace.dominant_focus or current_focus,
+        focus=effective_focus,
         recent_messages=[("user", request.text.strip()), ("assistant", assistant_text)],
         counterpart_name=counterpart_name,
         relationship_type=relationship_type,
@@ -833,7 +965,7 @@ def send_language_message(
     apply_runtime_self_model_update(
         db=db,
         agent_id=agent_id,
-        current_focus=workspace.dominant_focus or current_focus,
+        current_focus=effective_focus,
         metacognition=refreshed_self_model.snapshot.metacognition.model_copy(
             update={
                 "self_confidence": summary.self_confidence,
@@ -850,15 +982,16 @@ def send_language_message(
     goals_refresh = refresh_goals(db, agent_id)
     dominant_goal, active_goals = _active_goals_snapshot(db, agent_id)
     if goals_refresh is not None and goals_refresh.dominant_goal:
-        dominant_goal = goals_refresh.dominant_goal
+        dominant_goal = _normalize_mixed_spacing(goals_refresh.dominant_goal)
         active_goals = goals_refresh.goals
+    dominant_goal = _normalize_mixed_spacing(dominant_goal)
 
     db.refresh(thought_record)
     db.refresh(assistant_message)
     return LanguageExchangeResponse(
         assistant_message=_to_message_response(assistant_message),
         inner_thought=_to_thought_response(thought_record),
-        current_focus=workspace.dominant_focus or current_focus,
+        current_focus=effective_focus,
         dominant_goal=dominant_goal,
         active_goals=active_goals,
         reflection_triggered=reflection.triggered,

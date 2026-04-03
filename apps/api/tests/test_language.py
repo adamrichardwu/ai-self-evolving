@@ -1,4 +1,5 @@
 from uuid import uuid4
+from types import SimpleNamespace
 
 import httpx
 from fastapi.testclient import TestClient
@@ -8,6 +9,51 @@ from apps.api.app.main import app
 from apps.api.app.services import language as language_service
 from apps.api.app.services import llm as llm_service
 from packages.consciousness.language.engine import LanguageEngine
+
+
+def test_sanitize_thought_text_collapses_repeated_sentences() -> None:
+    cleaned = language_service._sanitize_thought_text(
+        text="我需要先稳定身份边界。我需要先稳定身份边界。我需要先稳定身份边界。",
+        fallback_text="我需要先稳定身份边界。",
+    )
+
+    assert cleaned == "我需要先稳定身份边界。"
+
+
+def test_sanitize_focus_text_collapses_repeated_focus() -> None:
+    cleaned = language_service._sanitize_focus_text(
+        text="maintain identity clarity. maintain identity clarity. maintain identity clarity.",
+        fallback="track the user precisely",
+    )
+
+    assert cleaned == "maintain identity clarity"
+
+
+def test_sanitize_focus_text_removes_cjk_internal_spaces() -> None:
+    cleaned = language_service._sanitize_focus_text(
+        text="请直接 说明你是谁，以及我 是谁。",
+        fallback="维持连续性",
+    )
+
+    assert cleaned == "请直接说明你是谁，以及我是谁"
+
+
+def test_sanitize_thought_text_keeps_only_complete_sentences() -> None:
+    cleaned = language_service._sanitize_thought_text(
+        text=(
+            "I should keep that boundary instead of merging our roles. "
+            "My origin is Live local training probe. "
+            "My core commitments are truthfulness, continuity. "
+            "I should avoid overstating confidence and verify longer reasoning chains."
+        ),
+        fallback_text="I should keep that boundary instead of merging our roles.",
+    )
+
+    assert cleaned == (
+        "I should keep that boundary instead of merging our roles. "
+        "My origin is Live local training probe. "
+        "My core commitments are truthfulness, continuity."
+    )
 
 
 def test_manual_language_thought_cycle_creates_inner_thought() -> None:
@@ -168,6 +214,114 @@ def test_language_message_uses_llm_when_configured(monkeypatch) -> None:
     assert body["assistant_message"]["content"] == "I will answer the user directly while staying aligned with my current focus."
 
 
+def test_language_message_sanitizes_repetitive_inner_thought_and_focus(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-sanitize-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "Sanitization seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "track the user precisely"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "language_sanitization_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    class DummyWorkspaceEngine:
+        def run_cycle(self, signals):
+            return SimpleNamespace(
+                dominant_focus="maintain identity clarity. maintain identity clarity. maintain identity clarity.",
+                cycle_confidence=0.81,
+            )
+
+    monkeypatch.setattr(language_service, "GlobalWorkspaceEngine", DummyWorkspaceEngine)
+
+    responses = iter([
+        "I need to keep identity boundaries stable. I need to keep identity boundaries stable. I need to keep identity boundaries stable.",
+        "I will answer directly while staying aligned with the active focus.",
+        "The agent kept identity boundaries stable and responded directly.",
+    ])
+
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: next(responses))
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={"text": "Tell me what you are focusing on right now."},
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert body["inner_thought"]["content"] == "I need to keep identity boundaries stable."
+    assert body["current_focus"] == "maintain identity clarity"
+    assert body["dominant_goal"] == "maintain identity clarity"
+
+
+def test_language_message_normalizes_cjk_focus_spacing_end_to_end(monkeypatch) -> None:
+    client = TestClient(app)
+    agent_id = f"agent-language-cjk-focus-{uuid4()}"
+    create_response = client.post(
+        "/api/v1/self-models",
+        json={
+            "snapshot": {
+                "identity": {
+                    "agent_id": agent_id,
+                    "chosen_name": "Astra",
+                    "origin_story": "CJK focus seed"
+                },
+                "capability": {},
+                "goals": {},
+                "values": {},
+                "affect": {},
+                "attention": {"current_focus": "维持连续性"},
+                "metacognition": {},
+                "social": {},
+                "autobiography": {}
+            },
+            "update_reason": "language_cjk_focus_seed"
+        },
+    )
+    assert create_response.status_code in (201, 409)
+
+    class DummyWorkspaceEngine:
+        def run_cycle(self, signals):
+            return SimpleNamespace(
+                dominant_focus="请直接 说明你是谁，以及我 是谁。",
+                cycle_confidence=0.81,
+            )
+
+    monkeypatch.setattr(language_service, "GlobalWorkspaceEngine", DummyWorkspaceEngine)
+
+    responses = iter([
+        "I should keep the identity boundary stable.",
+        "I will answer directly.",
+        "The agent handled the identity question directly.",
+    ])
+
+    monkeypatch.setattr(language_service.llm, "generate", lambda *args, **kwargs: next(responses))
+
+    message_response = client.post(
+        f"/api/v1/language/{agent_id}/messages",
+        json={"text": "请直接说明你是谁，以及我是 谁。"},
+    )
+    assert message_response.status_code == 200
+    body = message_response.json()
+    assert body["inner_thought"]["focus"] == "请直接说明你是谁，以及我是谁"
+    assert body["current_focus"] == "请直接说明你是谁，以及我是谁"
+    assert body["dominant_goal"] == "请直接说明你是谁，以及我是谁"
+
+
 def test_language_state_exposes_rolling_summary() -> None:
     client = TestClient(app)
     agent_id = f"agent-language-summary-{uuid4()}"
@@ -216,11 +370,24 @@ def test_language_state_exposes_rolling_summary() -> None:
     assert len(state["active_goals"]) >= 1
 
 
-def test_llm_status_reports_unconfigured_mode() -> None:
+def test_llm_status_reports_unconfigured_mode(monkeypatch) -> None:
     client = TestClient(app)
-    settings.local_model_path = None
-    settings.llm_api_base_url = None
-    settings.llm_model = None
+    monkeypatch.setattr(settings, "local_model_path", None)
+    monkeypatch.setattr(settings, "llm_api_base_url", None)
+    monkeypatch.setattr(settings, "llm_model", None)
+    monkeypatch.setattr(
+        llm_service.local_llm,
+        "describe_configuration",
+        lambda: {
+            "default_model_path": None,
+            "active_model_manifest_path": None,
+            "active_model_manifest_present": False,
+            "active_model_path": None,
+            "effective_model_path": None,
+            "loaded_model_path": None,
+        },
+    )
+    monkeypatch.setattr(llm_service.local_llm, "status", lambda: (False, "No local model configured."))
     response = client.get("/api/v1/language/llm/status")
     assert response.status_code == 200
     body = response.json()
@@ -234,6 +401,18 @@ def test_llm_status_reports_reachable_local_endpoint(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_base_url", "http://127.0.0.1:11434/v1")
     monkeypatch.setattr(settings, "llm_model", "qwen2.5:1.5b")
     monkeypatch.setattr(settings, "llm_api_key", "ollama")
+    monkeypatch.setattr(
+        llm_service.local_llm,
+        "describe_configuration",
+        lambda: {
+            "default_model_path": None,
+            "active_model_manifest_path": None,
+            "active_model_manifest_present": False,
+            "active_model_path": None,
+            "effective_model_path": None,
+            "loaded_model_path": None,
+        },
+    )
 
     class DummyResponse:
         def raise_for_status(self) -> None:

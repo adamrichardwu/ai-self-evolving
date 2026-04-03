@@ -1,3 +1,5 @@
+import re
+
 from dataclasses import dataclass
 
 from apps.api.app.schemas.self_model import SelfModelPayload
@@ -17,8 +19,15 @@ class GoalDraft:
 
 
 class GoalEngine:
+    def _normalize_text(self, text: str) -> str:
+        normalized = re.sub(r"\s+", " ", text or "").strip()
+        normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", normalized)
+        normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：,.!?;:])", "", normalized)
+        normalized = re.sub(r"(?<=[，。！？；：,.!?;:])\s+(?=[\u4e00-\u9fff])", "", normalized)
+        return normalized
+
     def _normalize_key(self, text: str) -> str:
-        normalized = "".join(character.lower() if character.isalnum() else "-" for character in text.strip())
+        normalized = "".join(character.lower() if character.isalnum() else "-" for character in self._normalize_text(text))
         while "--" in normalized:
             normalized = normalized.replace("--", "-")
         return normalized.strip("-") or "goal"
@@ -30,7 +39,7 @@ class GoalEngine:
     ) -> list[GoalDraft]:
         drafts: list[GoalDraft] = []
         motivation = MotivationVector()
-        current_focus = snapshot.attention.current_focus.strip()
+        current_focus = self._normalize_text(snapshot.attention.current_focus)
         chosen_name = snapshot.identity.chosen_name
         core_commitments = [item for item in snapshot.identity.core_commitments if item.strip()]
         social_obligations = [item for item in snapshot.social.social_obligations if item.strip()]
