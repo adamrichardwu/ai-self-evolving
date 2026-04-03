@@ -82,6 +82,18 @@ $env:CELERY_BROKER_URL="filesystem://"
 python -m celery -A apps.worker.app.celery_app:celery_app worker --pool solo --loglevel INFO
 ```
 
+### 3.1 本地训练入口
+
+核心能力导出会生成训练 job spec。现在可以直接用下面的入口消费它们：
+
+```powershell
+python -m train.sft --job-spec <training_job.json> --run-name sft-local
+python -m train.preference --job-spec <training_job.json> --run-name preference-local
+python -m train.evaluate --run-manifest <run_manifest.json> --max-examples 8
+```
+
+这三个入口当前支持本地训练和训练后评测：`train.sft`、`train.preference` 会执行真实训练；`train.evaluate` 会把训练后模型和基础模型在同一批导出数据上做定量对比。
+
 ### 4. 访问健康检查
 
 ```text

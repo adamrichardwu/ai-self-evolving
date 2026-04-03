@@ -31,7 +31,7 @@ py-modules = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["apps*", "packages*"]
+include = ["apps*", "packages*", "train*"]
 
 [tool.pytest.ini_options]
 testpaths = ["apps/api/tests", "apps/worker/tests"]
